@@ -7,6 +7,7 @@ import {
   fetchUserFollows, toggleFollow as apiToggleFollow,
   fetchUserWatchlist, toggleWatchlist as apiToggleWatch,
   fetchBidsForArtwork, placeBid as apiPlaceBid,
+  fetchUserBids,
 } from '../lib/interactions';
 
 const CATALOGUE_LOAD_TIMEOUT_MS = 30000;
@@ -40,6 +41,7 @@ export function useMarketplace() {
   const [follows, setFollows] = useState({});
   const [watchlist, setWatchlist] = useState({});
   const [bids, setBids] = useState({}); // { artworkId: [bid, ...] }
+  const [userBids, setUserBids] = useState([]);
 
   // --- UI state ---
   const [loading, setLoading] = useState(true);
@@ -50,6 +52,11 @@ export function useMarketplace() {
   useEffect(() => {
     // If not authenticated yet, don't try to load — but also don't stay in loading state
     if (!userId) {
+      setLikes({});
+      setFollows({});
+      setWatchlist({});
+      setBids({});
+      setUserBids([]);
       setLoading(false);
       return;
     }
@@ -77,11 +84,13 @@ export function useMarketplace() {
           withTimeout(fetchUserLikes(userId), 'Likes load', 8000),
           withTimeout(fetchUserFollows(userId), 'Follows load', 8000),
           withTimeout(fetchUserWatchlist(userId), 'Watchlist load', 8000),
+          withTimeout(fetchUserBids(userId), 'Bid history load', 8000),
         ]);
 
         const likesData = userInteractionResults[0].status === 'fulfilled' ? userInteractionResults[0].value : {};
         const followsData = userInteractionResults[1].status === 'fulfilled' ? userInteractionResults[1].value : {};
         const watchData = userInteractionResults[2].status === 'fulfilled' ? userInteractionResults[2].value : {};
+        const bidData = userInteractionResults[3].status === 'fulfilled' ? userInteractionResults[3].value : [];
 
         userInteractionResults.forEach((result) => {
           if (result.status === 'rejected') {
@@ -98,6 +107,7 @@ export function useMarketplace() {
         setLikes(likesData);
         setFollows(followsData);
         setWatchlist(watchData);
+        setUserBids(bidData);
       } catch (err) {
         console.error('Failed to load marketplace data:', err);
         if (!cancelled) setError(err.message);
@@ -213,7 +223,7 @@ export function useMarketplace() {
   }, [userId, watchlist]);
 
   const handlePlaceBid = useCallback(async (artworkId, amount) => {
-    if (!userId) return;
+    if (!userId) return { error: 'Authentication is required to place a bid.' };
 
     const work = artworkById(artworkId);
     const displayName = profile?.display_name || profile?.email?.split('@')[0] || 'You';
@@ -239,8 +249,18 @@ export function useMarketplace() {
     ));
 
     try {
-      await apiPlaceBid(userId, artworkId, amount, displayName);
-      return { success: true };
+      const saved = await apiPlaceBid(userId, artworkId, amount, displayName);
+      if (saved?.bid) {
+        setBids(prev => ({
+          ...prev,
+          [artworkId]: [saved.bid, ...(prev[artworkId] || []).filter(bid => bid.id !== saved.bid.id && bid.when !== 'just now')],
+        }));
+        setUserBids(prev => [saved.bid, ...prev.filter(bid => bid.id !== saved.bid.id)]);
+      }
+      if (saved?.artwork) {
+        setArtworks(prev => prev.map(w => w.id === artworkId ? saved.artwork : w));
+      }
+      return { success: true, bid: saved?.bid, artwork: saved?.artwork };
     } catch (err) {
       console.error('Failed to place bid:', err);
       // Revert
@@ -254,7 +274,7 @@ export function useMarketplace() {
           ? { ...w, currentBid: work.currentBid, bids: work.bids }
           : w
       ));
-      return { error: 'Failed to place bid. Please try again.' };
+      return { error: err.message || 'Failed to place bid. Please try again.' };
     }
   }, [userId, profile, artworkById]);
 
@@ -267,6 +287,18 @@ export function useMarketplace() {
       console.error('Failed to load bids:', err);
     }
   }, []);
+
+  const refreshUserBids = useCallback(async () => {
+    if (!userId) return [];
+    try {
+      const bidData = await withTimeout(fetchUserBids(userId), 'Bid history refresh', 10000);
+      setUserBids(bidData);
+      return bidData;
+    } catch (err) {
+      console.error('Failed to refresh user bids:', err);
+      return [];
+    }
+  }, [userId]);
 
   const refreshCommissions = useCallback(async () => {
     try {
@@ -320,6 +352,7 @@ export function useMarketplace() {
     follows,
     watchlist,
     bids,
+    userBids,
 
     // Action handlers
     toggleLike: handleToggleLike,
@@ -327,6 +360,7 @@ export function useMarketplace() {
     toggleWatch: handleToggleWatch,
     placeBid: handlePlaceBid,
     loadBidsForArtwork,
+    refreshUserBids,
     refreshCommissions,
     refreshCatalogue,
 

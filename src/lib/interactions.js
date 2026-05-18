@@ -1,5 +1,63 @@
 import { supabase } from './supabase';
 
+async function devInteractionApi(path, options = {}) {
+  if (!import.meta.env.DEV) return null;
+
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(path, {
+    ...options,
+    headers,
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload.error || 'Marketplace interaction failed.');
+  }
+
+  return payload.data;
+}
+
+function transformArtwork(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    title: row.title,
+    visual: row.visual,
+    artist: row.artist_id,
+    year: row.year,
+    dim: row.dimensions,
+    edition: row.edition,
+    startBid: Number(row.start_bid),
+    currentBid: Number(row.current_bid),
+    bids: row.bid_count,
+    watchers: row.watcher_count,
+    endsAt: Math.max(0, new Date(row.ends_at).getTime() - Date.now()),
+    tags: row.tags || [],
+    likes: row.like_count,
+    format: row.format,
+    createdAt: row.created_at,
+  };
+}
+
+function transformBid(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    artworkId: row.artwork_id,
+    user: row.display_name,
+    amount: Number(row.amount),
+    when: formatRelativeTime(row.placed_at),
+    placedAt: row.placed_at,
+  };
+}
+
 // ============================================================
 // INTERACTIONS LAYER — User-specific reads/writes to Supabase
 // ============================================================
@@ -125,29 +183,66 @@ export async function toggleWatchlist(userId, artworkId) {
 // ---- Bids ----
 
 export async function fetchBidsForArtwork(artworkId) {
+  const apiData = await devInteractionApi(`/api/bids?artworkId=${encodeURIComponent(artworkId)}`);
+  if (apiData) return (apiData || []).map(transformBid);
+
   const { data, error } = await supabase
     .from('bids')
     .select('*')
     .eq('artwork_id', artworkId)
     .order('placed_at', { ascending: false });
   if (error) throw error;
-  return (data || []).map(row => ({
-    user: row.display_name,
-    amount: Number(row.amount),
-    when: formatRelativeTime(row.placed_at),
-  }));
+  return (data || []).map(transformBid);
+}
+
+export async function fetchUserBids(userId) {
+  const apiData = await devInteractionApi('/api/bids?scope=mine');
+  if (apiData) return (apiData || []).map(transformBid);
+
+  const { data, error } = await supabase
+    .from('bids')
+    .select('*')
+    .eq('user_id', userId)
+    .order('placed_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(transformBid);
 }
 
 export async function placeBid(userId, artworkId, amount, displayName) {
-  const { error } = await supabase
+  const apiData = await devInteractionApi('/api/bids', {
+    method: 'POST',
+    body: JSON.stringify({ artworkId, amount, displayName }),
+  });
+  if (apiData) {
+    return {
+      bid: transformBid(apiData.bid),
+      artwork: transformArtwork(apiData.artwork),
+    };
+  }
+
+  const { data: bid, error } = await supabase
     .from('bids')
     .insert({
       user_id: userId,
       artwork_id: artworkId,
       amount,
       display_name: displayName || 'Anonymous',
-    });
+    })
+    .select()
+    .single();
   if (error) throw error;
+
+  const { data: artwork, error: artworkError } = await supabase
+    .from('artworks')
+    .select('*')
+    .eq('id', artworkId)
+    .single();
+  if (artworkError) throw artworkError;
+
+  return {
+    bid: transformBid(bid),
+    artwork: transformArtwork(artwork),
+  };
 }
 
 // ---- Helpers ----

@@ -769,6 +769,16 @@ const formatTime = (ms) => {
   return `${String(m).padStart(2,'0')}M ${String(s).padStart(2,'0')}S`;
 };
 const fmt = (n) => n.toLocaleString('en-US');
+const relativeTime = (iso) => {
+  if (!iso) return 'unknown';
+  const diff = Date.now() - new Date(iso).getTime();
+  const minutes = Math.max(0, Math.floor(diff / 60000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+};
 const artistById = (id) => ARTISTS.find(a => a.id === id) || { id, name: 'Unknown', handle: '?', accent: '#0E0E0C', followers: 0, verified: false };
 const artworkById = (id) => ARTWORKS.find(w => w.id === id) || { id, title: 'Unknown', currentBid: 0, tags: [] };
 const normalizeText = (value) => String(value || '').toLowerCase().trim();
@@ -1417,24 +1427,44 @@ const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist, toggl
 // ============================================================
 // ARTWORK DETAIL — Auction view
 // ============================================================
-const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids, placeBid, onReport }) => {
+const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids, placeBid, loadBidsForArtwork, onReport }) => {
   const work = artworkById(workId);
   const artist = artistById(work.artist);
   const [bidInput, setBidInput] = useState(minimumNextBid(work.currentBid));
   const [tab, setTab] = useState('bids');
   const [timeLeft, setTimeLeft] = useState(work.endsAt);
+  const [placingBid, setPlacingBid] = useState(false);
+  const [bidNotice, setBidNotice] = useState('');
   useEffect(() => {
     const i = setInterval(() => setTimeLeft(t => Math.max(0, t - 1000)), 1000);
     return () => clearInterval(i);
   }, []);
-  const localBids = bids[work.id] || [
-    { user: '0xCarmen', amount: work.currentBid, when: '2m ago' },
-    { user: 'thora.k', amount: work.currentBid - 40, when: '14m ago' },
-    { user: 'studio_ng', amount: work.currentBid - 80, when: '42m ago' },
-    { user: '0xCarmen', amount: work.currentBid - 120, when: '1h ago' },
-    { user: 'merrick', amount: work.startBid, when: '4h ago' },
-  ];
-  const currentTopBid = localBids[0]?.amount || work.currentBid;
+  useEffect(() => {
+    loadBidsForArtwork?.(work.id);
+  }, [loadBidsForArtwork, work.id]);
+  useEffect(() => {
+    setTimeLeft(work.endsAt);
+  }, [work.id, work.endsAt]);
+  const localBids = bids[work.id] || [];
+  const currentTopBid = Math.max(Number(work.currentBid || 0), Number(localBids[0]?.amount || 0));
+  const minNextBid = minimumNextBid(currentTopBid);
+  const bidCount = Math.max(Number(work.bids || 0), localBids.length);
+  useEffect(() => {
+    setBidInput(minimumNextBid(currentTopBid));
+    setBidNotice('');
+  }, [work.id, currentTopBid]);
+  const submitBid = async () => {
+    setBidNotice('');
+    setPlacingBid(true);
+    const result = await placeBid(work.id, bidInput);
+    setPlacingBid(false);
+    if (result?.error) {
+      setBidNotice(result.error);
+      return;
+    }
+    setBidNotice('Bid placed and synced to the auction ledger.');
+    setBidInput(minimumNextBid(Number(result?.artwork?.currentBid || bidInput)));
+  };
 
   return (
     <main className="fade-in max-w-[1440px] mx-auto px-8 py-10">
@@ -1488,7 +1518,7 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
           <div className="hair-all bg-[var(--card)] p-6">
             <div className="flex justify-between items-baseline">
               <div className="label">Current top bid</div>
-              <div className="label">{localBids.length} bids placed</div>
+              <div className="label">{bidCount} bids placed</div>
             </div>
             <div className="display text-[64px] leading-none mt-2">${fmt(currentTopBid)}</div>
             <div className="mt-4 hair-t pt-4 grid grid-cols-2 gap-4">
@@ -1503,7 +1533,7 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
               </div>
               <div>
                 <div className="label">Min. next bid</div>
-                <div className="mono text-[24px] mt-1">${fmt(minimumNextBid(currentTopBid))}</div>
+                <div className="mono text-[24px] mt-1">${fmt(minNextBid)}</div>
                 <div className="mono text-[10px] text-[var(--muted)] mt-1">
                   Increment: ${fmt(minimumBidIncrement(currentTopBid))}
                 </div>
@@ -1515,12 +1545,17 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
               <div className="flex items-center gap-2">
                 <div className="hair-all flex-1 flex items-center px-3">
                   <span className="mono text-[12px] text-[var(--muted)]">USD</span>
-                  <input value={bidInput} onChange={e => setBidInput(Number(e.target.value)||0)} type="number" className="bg-transparent outline-none mono text-[18px] flex-1 px-3 py-2.5 text-right"/>
+                  <input value={bidInput} min={minNextBid} onChange={e => setBidInput(Number(e.target.value)||0)} type="number" className="bg-transparent outline-none mono text-[18px] flex-1 px-3 py-2.5 text-right"/>
                 </div>
-                <button onClick={() => placeBid(work.id, bidInput)} className="swiss-btn accent py-3" disabled={timeLeft <= 0}>
-                  <Gavel size={12}/> {timeLeft <= 0 ? 'Ended' : 'Bid'}
+                <button onClick={submitBid} className="swiss-btn accent py-3" disabled={timeLeft <= 0 || placingBid || bidInput < minNextBid}>
+                  <Gavel size={12}/> {timeLeft <= 0 ? 'Ended' : placingBid ? 'Placing...' : 'Bid'}
                 </button>
               </div>
+              {bidNotice && (
+                <div className={`mt-3 text-[12px] ${bidNotice.toLowerCase().includes('synced') ? 'text-[var(--good)]' : 'text-[var(--accent)]'}`}>
+                  {bidNotice}
+                </div>
+              )}
               <div className="mt-3 hair-all p-3 bg-[var(--bg)]">
                 <div className="flex justify-between mono text-[11px]">
                   <span className="text-[var(--muted)]">Your bid</span>
@@ -1539,8 +1574,8 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
                 Authorised at bid · captured only on winning · refunded if outbid
               </div>
               <div className="flex gap-2 mt-3">
-                {[20, 50, 100, 250].map(inc => (
-                  <button key={inc} onClick={() => setBidInput(currentTopBid + inc)} className="tab-pill flex-1">+{inc}</button>
+                {[0, 50, 100, 250].map(inc => (
+                  <button key={inc} onClick={() => setBidInput(minNextBid + inc)} className="tab-pill flex-1">{inc === 0 ? 'Min' : `+${inc}`}</button>
                 ))}
               </div>
             </div>
@@ -1549,27 +1584,37 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
           {/* TABS */}
           <div>
             <div className="flex gap-1 hair-b">
-              {[{k:'bids', l:'Bid history'},{k:'about',l:'About'},{k:'comments',l:'Comments · 8'}].map(t => (
+              {[{k:'bids', l:`Bid history - ${bidCount}`},{k:'about',l:'About'},{k:'comments',l:'Comments · 8'}].map(t => (
                 <button key={t.k} onClick={() => setTab(t.k)} className={`mono text-[11px] uppercase tracking-[0.12em] px-3 py-2.5 ${tab===t.k ? 'border-b border-[var(--ink)] -mb-px text-[var(--ink)]' : 'text-[var(--muted)]'}`}>{t.l}</button>
               ))}
             </div>
             <div className="pt-5">
               {tab === 'bids' && (
-                <div className="space-y-0">
-                  {localBids.map((b, i) => (
-                    <div key={i} className="flex items-center justify-between hair-b py-3">
-                      <div className="flex items-center gap-3">
-                        <span className="mono text-[10px] text-[var(--muted)] w-6">{String(i+1).padStart(2,'0')}</span>
-                        <span className="text-[13px]">{b.user}</span>
-                        {i === 0 && <span className="bg-[var(--good)] text-white mono text-[9px] px-1.5 py-0.5 tracking-wider">TOP</span>}
+                localBids.length ? (
+                  <div className="space-y-0">
+                    {localBids.map((b, i) => (
+                      <div key={b.id || i} className="flex items-center justify-between hair-b py-3">
+                        <div className="flex items-center gap-3">
+                          <span className="mono text-[10px] text-[var(--muted)] w-6">{String(i+1).padStart(2,'0')}</span>
+                          <span className="text-[13px]">{b.user}</span>
+                          {i === 0 && <span className="bg-[var(--good)] text-white mono text-[9px] px-1.5 py-0.5 tracking-wider">TOP</span>}
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="mono text-[11px] text-[var(--muted)]">{b.when}</span>
+                          <span className="mono text-[14px]">${fmt(b.amount)}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <span className="mono text-[11px] text-[var(--muted)]">{b.when}</span>
-                        <span className="mono text-[14px]">${fmt(b.amount)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="hair-all p-6 bg-[var(--card)] text-center">
+                    <Gavel size={18} className="mx-auto text-[var(--muted)]"/>
+                    <div className="display text-[22px] mt-3">No persisted bid rows yet.</div>
+                    <p className="text-[13px] text-[var(--muted)] mt-2">
+                      New bids placed through FORMA will appear here immediately.
+                    </p>
+                  </div>
+                )
               )}
               {tab === 'about' && (
                 <div className="text-[14px] leading-relaxed text-[var(--ink-2)] space-y-4">
@@ -2155,8 +2200,11 @@ const SellerOnboardingCard = ({ profile, onCreate }) => {
   const submit = async (event) => {
     event.preventDefault();
     setSaving(true);
-    await onCreate(form);
-    setSaving(false);
+    try {
+      await onCreate(form);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -2208,6 +2256,103 @@ const SellerOnboardingCard = ({ profile, onCreate }) => {
   );
 };
 
+const SellerStudioModal = ({ open, profile, ownedArtist, onClose, onSubmit }) => {
+  const [form, setForm] = useState({
+    handle: '',
+    name: '',
+    city: '',
+    bio: '',
+    accent: ACCENT_SWATCHES[0],
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setForm({
+      handle: ownedArtist?.handle || profile?.handle || profile?.display_name || '',
+      name: ownedArtist?.name || profile?.display_name || '',
+      city: ownedArtist?.city || profile?.city || '',
+      bio: ownedArtist?.bio || profile?.bio || '',
+      accent: ownedArtist?.accent || ACCENT_SWATCHES[0],
+    });
+  }, [open, ownedArtist, profile]);
+
+  if (!open) return null;
+
+  const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+  const formValid = form.name.trim().length > 0 && form.handle.trim().length > 0;
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!formValid) return;
+    setSaving(true);
+    let ok = false;
+    try {
+      ok = await onSubmit(form);
+    } finally {
+      setSaving(false);
+    }
+    if (ok) onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[260] bg-[rgba(14,14,12,0.42)] backdrop-blur-sm flex items-center justify-center p-4">
+      <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full max-w-[720px] max-h-[92vh] overflow-y-auto shadow-[0_24px_80px_rgba(14,14,12,0.22)]">
+        <div className="p-6 hair-b flex items-start justify-between gap-4">
+          <div>
+            <div className="label">{ownedArtist ? 'Studio settings' : 'Seller setup'}</div>
+            <h2 className="display text-[34px] mt-2">{ownedArtist ? 'Edit your studio.' : 'Create your studio.'}</h2>
+          </div>
+          <button type="button" onClick={onClose} className="hair-all w-9 h-9 inline-flex items-center justify-center hover:bg-[var(--bg-2)]" aria-label="Close studio settings">
+            <X size={16}/>
+          </button>
+        </div>
+
+        <div className="p-6 grid grid-cols-2 gap-5">
+          <div>
+            <label htmlFor="studio-modal-name" className="label mb-2 block">Studio name</label>
+            <input id="studio-modal-name" value={form.name} onChange={event => updateField('name', event.target.value)} className="swiss-input" maxLength={120} required/>
+          </div>
+          <div>
+            <label htmlFor="studio-modal-handle" className="label mb-2 block">Handle</label>
+            <input id="studio-modal-handle" value={form.handle} onChange={event => updateField('handle', event.target.value)} className="swiss-input" maxLength={48} required/>
+          </div>
+          <div>
+            <label htmlFor="studio-modal-city" className="label mb-2 block">City</label>
+            <input id="studio-modal-city" value={form.city} onChange={event => updateField('city', event.target.value)} className="swiss-input" maxLength={120}/>
+          </div>
+          <div>
+            <label className="label mb-2 block">Accent</label>
+            <div className="grid grid-cols-6 gap-2">
+              {ACCENT_SWATCHES.map(color => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => updateField('accent', color)}
+                  className={`h-11 hair-all ${form.accent === color ? 'outline outline-2 outline-[var(--ink)]' : ''}`}
+                  style={{ backgroundColor: color }}
+                  aria-label={`Use accent ${color}`}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="col-span-2">
+            <label htmlFor="studio-modal-bio" className="label mb-2 block">Bio</label>
+            <textarea id="studio-modal-bio" value={form.bio} onChange={event => updateField('bio', event.target.value)} className="swiss-input min-h-[140px]" maxLength={900}/>
+          </div>
+        </div>
+
+        <div className="p-6 hair-t flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="swiss-btn ghost">Cancel</button>
+          <button type="submit" disabled={saving || !formValid} className={`swiss-btn accent ${saving || !formValid ? 'opacity-60 cursor-not-allowed' : ''}`}>
+            {saving ? 'Saving...' : ownedArtist ? 'Save studio' : 'Create studio'} <ArrowRight size={12}/>
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
 const SellerArtworkModal = ({ open, onClose, onSubmit }) => {
   const [form, setForm] = useState({
     title: '',
@@ -2221,6 +2366,14 @@ const SellerArtworkModal = ({ open, onClose, onSubmit }) => {
     tags: 'digital, abstract',
   });
   const [saving, setSaving] = useState(false);
+  const startBidNumber = Number(form.startBid);
+  const durationHoursNumber = Number(form.durationHours);
+  const formValid = form.title.trim().length > 0
+    && Number.isFinite(startBidNumber)
+    && startBidNumber >= 20
+    && Number.isFinite(durationHoursNumber)
+    && durationHoursNumber >= 24
+    && durationHoursNumber <= 168;
 
   if (!open) return null;
 
@@ -2228,14 +2381,18 @@ const SellerArtworkModal = ({ open, onClose, onSubmit }) => {
 
   const submit = async (event) => {
     event.preventDefault();
+    if (!formValid) return;
     setSaving(true);
-    await onSubmit({
-      ...form,
-      startBid: Number(form.startBid),
-      durationHours: Number(form.durationHours),
-      year: Number(form.year),
-    });
-    setSaving(false);
+    try {
+      await onSubmit({
+        ...form,
+        startBid: startBidNumber,
+        durationHours: durationHoursNumber,
+        year: Number(form.year),
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -2309,7 +2466,7 @@ const SellerArtworkModal = ({ open, onClose, onSubmit }) => {
 
         <div className="p-6 hair-t flex justify-end gap-3">
           <button type="button" onClick={onClose} className="swiss-btn ghost">Cancel</button>
-          <button type="submit" disabled={saving || !form.title.trim()} className={`swiss-btn accent ${saving ? 'opacity-60 cursor-wait' : ''}`}>
+          <button type="submit" disabled={saving || !formValid} className={`swiss-btn accent ${saving || !formValid ? 'opacity-60 cursor-not-allowed' : ''}`}>
             {saving ? 'Listing...' : 'List work'} <ArrowRight size={12}/>
           </button>
         </div>
@@ -2327,6 +2484,18 @@ const SellerCommissionModal = ({ open, onClose, onSubmit }) => {
     brief: '',
   });
   const [saving, setSaving] = useState(false);
+  const slotsNumber = Number(form.slots);
+  const priceNumber = Number(form.price);
+  const daysNumber = Number(form.days);
+  const formValid = form.title.trim().length > 0
+    && Number.isFinite(slotsNumber)
+    && slotsNumber >= 1
+    && slotsNumber <= 12
+    && Number.isFinite(priceNumber)
+    && priceNumber >= 20
+    && Number.isFinite(daysNumber)
+    && daysNumber >= 1
+    && daysNumber <= 60;
 
   if (!open) return null;
 
@@ -2334,14 +2503,18 @@ const SellerCommissionModal = ({ open, onClose, onSubmit }) => {
 
   const submit = async (event) => {
     event.preventDefault();
+    if (!formValid) return;
     setSaving(true);
-    await onSubmit({
-      ...form,
-      slots: Number(form.slots),
-      price: Number(form.price),
-      days: Number(form.days),
-    });
-    setSaving(false);
+    try {
+      await onSubmit({
+        ...form,
+        slots: slotsNumber,
+        price: priceNumber,
+        days: daysNumber,
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -2382,7 +2555,7 @@ const SellerCommissionModal = ({ open, onClose, onSubmit }) => {
 
         <div className="p-6 hair-t flex justify-end gap-3">
           <button type="button" onClick={onClose} className="swiss-btn ghost">Cancel</button>
-          <button type="submit" disabled={saving || !form.title.trim()} className={`swiss-btn accent ${saving ? 'opacity-60 cursor-wait' : ''}`}>
+          <button type="submit" disabled={saving || !formValid} className={`swiss-btn accent ${saving || !formValid ? 'opacity-60 cursor-not-allowed' : ''}`}>
             {saving ? 'Opening...' : 'Open board'} <ArrowRight size={12}/>
           </button>
         </div>
@@ -2581,15 +2754,13 @@ const ArtistsView = ({ goToArtist, follows, toggleFollow }) => (
 // ============================================================
 // BUYER DASHBOARD
 // ============================================================
-const BuyerDashboard = ({ goToArtwork, likes, toggleLike, bids, watchlist, toggleWatch, profile, commissionState, onOpenCommissionThread, setView }) => {
+const BuyerDashboard = ({ goToArtwork, likes, toggleLike, userBids, watchlist, toggleWatch, profile, commissionState, onOpenCommissionThread, setView }) => {
   const [tab, setTab] = useState('bids');
   const watchedWorks = ARTWORKS.filter(w => watchlist[w.id]);
   const displayName = profile?.display_name || profile?.email?.split('@')[0] || 'Buyer';
   const buyerBookings = commissionState?.buyerBookings || [];
   const escrowTotal = buyerBookings.reduce((total, booking) => total + Number(booking.price || 0), 0);
-  const activeBidRows = Object.entries(bids || {}).flatMap(([artworkId, rows]) =>
-    (rows || []).map(row => ({ artworkId, ...row }))
-  );
+  const activeBidRows = userBids || [];
 
   return (
     <main className="fade-in max-w-[1440px] mx-auto px-8 py-10">
@@ -2735,13 +2906,35 @@ const BuyerDashboard = ({ goToArtwork, likes, toggleLike, bids, watchlist, toggl
 // ============================================================
 // ARTIST STUDIO DASHBOARD
 // ============================================================
-const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist, commissionState, onOpenCommissionThread, onCreateArtist, onOpenArtworkModal, onOpenCommissionModal }) => {
+const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist, commissionState, onOpenCommissionThread, onCreateArtist, onOpenStudioModal, onOpenArtworkModal, onOpenCommissionModal }) => {
   const [tab, setTab] = useState('overview');
   const ownedWorks = ownedArtist ? ARTWORKS.filter(w => w.artist === ownedArtist.id) : [];
   const ownedCommissions = ownedArtist ? COMMISSIONS.filter(c => c.artist === ownedArtist.id) : [];
   const sellerBookings = commissionState?.artistBookings || [];
   const escrowTotal = sellerBookings.reduce((total, booking) => total + Number(booking.price || 0), 0);
+  const auctionTotal = ownedWorks.reduce((total, work) => total + Number(work.currentBid || 0), 0);
+  const openSlots = ownedCommissions.reduce((sum, c) => sum + Math.max(0, c.slots - c.taken), 0);
   const displayName = ownedArtist?.handle || profile?.handle || profile?.display_name || 'seller';
+  const todoItems = [
+    ...sellerBookings.slice(0, 3).map(booking => ({
+      p: '!',
+      t: `${commissionState.stateLabel(booking.status)}: ${booking.commission?.title || 'Commission'}`,
+      sub: `${booking.briefText ? 'Brief received' : 'Waiting for brief'} - $${fmt(Number(booking.price || 0))} in escrow`,
+      action: () => onOpenCommissionThread(booking),
+    })),
+    ...ownedWorks.filter(work => work.endsAt > 0).slice(0, 3).map(work => ({
+      p: work.endsAt < 1000 * 60 * 60 * 24 ? '!' : '.',
+      t: `${work.title} auction is live`,
+      sub: `${work.bids} bids - $${fmt(work.currentBid)} current - ${formatTime(work.endsAt)} left`,
+      action: () => goToArtwork(work.id),
+    })),
+    ...ownedCommissions.filter(c => c.slots > c.taken).slice(0, 2).map(c => ({
+      p: '.',
+      t: `${c.title} has ${c.slots - c.taken} open slot${c.slots - c.taken === 1 ? '' : 's'}`,
+      sub: `$${fmt(c.price)} - ${c.days}d delivery`,
+      action: () => setTab('commissions'),
+    })),
+  ].slice(0, 5);
 
   return (
     <main className="fade-in max-w-[1440px] mx-auto px-8 py-10">
@@ -2751,6 +2944,7 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
           <h1 className="display text-[56px] leading-tight">Studio, today.</h1>
         </div>
         <div className="flex gap-3">
+          <button onClick={onOpenStudioModal} className="swiss-btn ghost"><User size={12}/> {ownedArtist ? 'Edit studio' : 'Studio setup'}</button>
           <button onClick={onOpenCommissionModal} disabled={!ownedArtist} className={`swiss-btn ghost ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}><Plus size={12}/> New commission</button>
           <button onClick={onOpenArtworkModal} disabled={!ownedArtist} className={`swiss-btn ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}><Plus size={12}/> List new work</button>
         </div>
@@ -2761,9 +2955,9 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
       <div className="grid grid-cols-5 gap-5 mb-10">
         {[
           {l:'Live auctions',v:String(ownedWorks.length),d: ownedWorks.length ? `${ownedWorks.filter(w => w.endsAt < 1000*60*60*24).length} ending today` : 'No listed works'},
-          {l:'Open slots',v:`${ownedCommissions.reduce((sum, c) => sum + Math.max(0, c.slots - c.taken), 0)}`,d:`Across ${ownedCommissions.length} boards`},
+          {l:'Open slots',v:`${openSlots}`,d:`Across ${ownedCommissions.length} boards`},
           {l:'In escrow',v:`$${fmt(escrowTotal)}`,d:`${sellerBookings.length} commissions`},
-          {l:'Payout (Mon)',v:`$${fmt(Math.round(escrowTotal * 0.85))}`,d:'After platform fee'},
+          {l:'Auction value',v:`$${fmt(auctionTotal)}`,d:'Current live bids'},
           {l:'Followers',v: ownedArtist ? fmt(ownedArtist.followers || 0) : '0',d:'From Supabase artist row'},
         ].map((s,i) => (
           <div key={i} className="hair-all p-5 bg-[var(--card)]">
@@ -2806,16 +3000,16 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
             </div>
             <div className="grid grid-cols-3 gap-5 mt-5">
               <div className="hair-all p-4">
-                <div className="label">Total</div>
-                <div className="mono text-[24px] mt-1">$12,840</div>
+                <div className="label">Live auction value</div>
+                <div className="mono text-[24px] mt-1">${fmt(auctionTotal)}</div>
               </div>
               <div className="hair-all p-4">
-                <div className="label">Auctions</div>
-                <div className="mono text-[24px] mt-1">$8,290</div>
+                <div className="label">Commission escrow</div>
+                <div className="mono text-[24px] mt-1">${fmt(escrowTotal)}</div>
               </div>
               <div className="hair-all p-4">
-                <div className="label">Commissions</div>
-                <div className="mono text-[24px] mt-1">$4,550</div>
+                <div className="label">Open inventory</div>
+                <div className="mono text-[24px] mt-1">{ownedWorks.length + openSlots}</div>
               </div>
             </div>
           </div>
@@ -2824,20 +3018,17 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
               <h3 className="display text-[24px]">To do</h3>
             </div>
             <div className="space-y-3">
-              {[
-                {p:'!', t:'Deliver: Halftone poster for thora.k', sub:'Due in 2 days · $480 in escrow'},
-                {p:'·', t:'Approve draft from buyer: J. Lim', sub:'Brief approved 4h ago'},
-                {p:'·', t:'Halftone Field №14 ends today', sub:'14 bids · $480 current top'},
-                {p:'·', t:'Reply to 3 commission inquiries', sub:'Oldest 2 days ago'},
-              ].map((todo,i) => (
-                <div key={i} className="hair-all p-3 flex items-start gap-3 cursor-pointer hover:bg-[var(--card)]">
+              {(todoItems.length ? todoItems : [
+                {p:'.', t: ownedArtist ? 'List your first artwork or commission board' : 'Create a studio profile to unlock seller tools', sub: ownedArtist ? 'Use the actions above to open your shop.' : 'Studio setup links your seller account to catalogue rows.', action: ownedArtist ? onOpenArtworkModal : onOpenStudioModal},
+              ]).map((todo,i) => (
+                <button key={i} onClick={todo.action} className="hair-all p-3 flex items-start gap-3 cursor-pointer hover:bg-[var(--card)] text-left w-full">
                   <span className={`mono text-[14px] ${todo.p === '!' ? 'text-[var(--accent)]' : 'text-[var(--muted)]'}`}>{todo.p}</span>
                   <div className="flex-1">
                     <div className="text-[13px] font-medium">{todo.t}</div>
                     <div className="text-[11px] text-[var(--muted)] mt-0.5">{todo.sub}</div>
                   </div>
                   <ChevronRight size={14} className="text-[var(--muted)]"/>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -2861,13 +3052,17 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
                 <div className="w-12 h-12 hair-all"><ArtVisual visual={w.visual}/></div>
                 <div>
                   <div className="text-[14px] font-medium">{w.title}</div>
-                  <div className="mono text-[11px] text-[var(--muted)]">Listed 5d ago</div>
+                  <div className="mono text-[11px] text-[var(--muted)]">Listed {relativeTime(w.createdAt)}</div>
                 </div>
               </div>
               <div className="col-span-2 mono">{w.bids}</div>
               <div className="col-span-2 mono font-medium">${fmt(w.currentBid)}</div>
               <div className="col-span-2 mono text-[13px]">{formatTime(w.endsAt)}</div>
-              <div className="col-span-1 text-right"><button className="hair-all w-7 h-7 inline-flex items-center justify-center"><MoreHorizontal size={14}/></button></div>
+              <div className="col-span-1 text-right">
+                <button onClick={() => goToArtwork(w.id)} className="hair-all w-7 h-7 inline-flex items-center justify-center" aria-label={`Open ${w.title}`}>
+                  <ArrowRight size={14}/>
+                </button>
+              </div>
             </div>
           ))}
           {ownedWorks.length === 0 && (
@@ -2882,7 +3077,38 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
 
       {tab === 'commissions' && (
         <div className="grid grid-cols-2 gap-6">
-          {ownedCommissions.map(c => <CommissionCard key={c.id} commission={c} role="artist"/>)}
+          {ownedCommissions.map(c => {
+            const remaining = Math.max(0, c.slots - c.taken);
+            return (
+              <div key={c.id} className="hair-all p-6 bg-[var(--card)]">
+                <div className="flex justify-between items-start gap-4">
+                  <div>
+                    <div className="label">Commission board</div>
+                    <div className="display text-[24px] mt-3">{c.title}</div>
+                    <div className="mono text-[11px] text-[var(--muted)] mt-2">${fmt(c.price)} - {c.days}d delivery</div>
+                  </div>
+                  <span className={`mono text-[9px] uppercase tracking-[0.12em] px-2 py-1 ${remaining > 0 ? 'bg-[var(--good)] text-white' : 'hair-all text-[var(--muted)]'}`}>
+                    {remaining > 0 ? 'OPEN' : 'FULL'}
+                  </span>
+                </div>
+                <p className="text-[13px] text-[var(--ink-2)] mt-4 leading-relaxed">{c.brief || 'No public brief yet.'}</p>
+                <div className="mt-5 grid grid-cols-3 gap-3">
+                  <div className="hair-all p-3">
+                    <div className="label">Slots</div>
+                    <div className="mono text-[20px] mt-1">{c.taken}/{c.slots}</div>
+                  </div>
+                  <div className="hair-all p-3">
+                    <div className="label">Open</div>
+                    <div className="mono text-[20px] mt-1">{remaining}</div>
+                  </div>
+                  <div className="hair-all p-3">
+                    <div className="label">Potential</div>
+                    <div className="mono text-[20px] mt-1">${fmt(remaining * c.price)}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
           {sellerBookings.map(booking => (
             <div key={booking.id} className="hair-all p-6 bg-[var(--card)]">
               <div className="label">Booked slot</div>
@@ -2913,14 +3139,14 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
           <div className="hair-all p-6 mb-8 bg-[var(--card)] grid grid-cols-4 gap-6">
             <div className="col-span-2">
               <div className="label">Next payout</div>
-              <div className="display text-[48px] mt-2 leading-none">$3,920.00</div>
-              <div className="mono text-[11px] text-[var(--muted)] mt-2">Monday 18 May · DE89 3704 …8910</div>
+              <div className="display text-[48px] mt-2 leading-none">${fmt(Math.round(escrowTotal * 0.85))}.00</div>
+              <div className="mono text-[11px] text-[var(--muted)] mt-2">Monday payout queue - bank account pending</div>
             </div>
             <div>
               <div className="label">Gross</div>
-              <div className="mono text-[20px] mt-1">$4,454.55</div>
+              <div className="mono text-[20px] mt-1">${fmt(escrowTotal)}</div>
               <div className="label mt-3">Platform fee</div>
-              <div className="mono text-[14px] text-[var(--muted)] mt-1">−$534.55 (12%)</div>
+              <div className="mono text-[14px] text-[var(--muted)] mt-1">-${fmt(Math.round(escrowTotal * 0.15))} (15%)</div>
             </div>
             <div className="flex flex-col justify-end">
               <button className="swiss-btn ghost mb-2">Pause payouts</button>
@@ -3665,6 +3891,7 @@ export default function App() {
   const [bookingCommission, setBookingCommission] = useState(null);
   const [threadBooking, setThreadBooking] = useState(null);
   const [sendingThreadMessage, setSendingThreadMessage] = useState(false);
+  const [sellerStudioOpen, setSellerStudioOpen] = useState(false);
   const [sellerArtworkOpen, setSellerArtworkOpen] = useState(false);
   const [sellerCommissionOpen, setSellerCommissionOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState(null);
@@ -3679,7 +3906,7 @@ export default function App() {
   if (marketplace.feedPosts.length) FEED_POSTS = marketplace.feedPosts;
 
   // Destructure interaction data from hook
-  const { likes, follows, watchlist, bids } = marketplace;
+  const { likes, follows, watchlist, bids, userBids } = marketplace;
 
   const navigateToView = (target) => {
     if (!APP_VIEWS.has(target)) return;
@@ -3764,6 +3991,7 @@ export default function App() {
       const w = artworkById(workId);
       showToast(`Bid of $${fmt(amount)} placed on ${w.title}`, 2800);
     }
+    return result;
   };
 
   const openCommissionBooking = (commission) => {
@@ -3829,7 +4057,8 @@ export default function App() {
     try {
       await createSellerArtist(payload);
       await marketplace.refreshCatalogue();
-      showToast('Seller studio created.');
+      setSellerStudioOpen(false);
+      showToast(ownedArtist ? 'Seller studio updated.' : 'Seller studio created.');
       return true;
     } catch (err) {
       showToast(err.message || 'Seller studio creation failed.', 3600);
@@ -3840,10 +4069,11 @@ export default function App() {
   const handleCreateSellerArtwork = async (payload) => {
     if (!requireSellerAccount()) return false;
     try {
-      await createSellerArtwork(payload);
+      const created = await createSellerArtwork(payload);
       await marketplace.refreshCatalogue();
       setSellerArtworkOpen(false);
       showToast('Artwork listed.');
+      if (created?.id) goToArtwork(created.id);
       return true;
     } catch (err) {
       showToast(err.message || 'Artwork listing failed.', 3600);
@@ -3918,14 +4148,14 @@ export default function App() {
       ) : (
         <>
           {view === 'home' && <HomeView goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} query={query}/>}
-          {view === 'artwork' && selectedArtwork && <ArtworkView workId={selectedArtwork} goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} bids={bids} placeBid={placeBid} onReport={openReport}/>}
+          {view === 'artwork' && selectedArtwork && <ArtworkView workId={selectedArtwork} goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} bids={bids} placeBid={placeBid} loadBidsForArtwork={marketplace.loadBidsForArtwork} onReport={openReport}/>}
           {view === 'artist' && selectedArtist && <ArtistView artistId={selectedArtist} goToArtwork={goToArtwork} follows={follows} toggleFollow={toggleFollow} likes={likes} toggleLike={toggleLike} onReport={openReport}/>}
           {view === 'commissions' && <CommissionsView goToArtist={goToArtist} role={role} onBookCommission={openCommissionBooking}/>}
           {view === 'feed' && <FeedView goToArtwork={goToArtwork} goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow} likes={likes} toggleLike={toggleLike}/>}
           {view === 'artists' && <ArtistsView goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow}/>}
           {view === 'profile' && <ProfileView user={user} profile={profile} role={role} updateProfile={updateProfile} marketplace={marketplace} setView={navigateToView}/>}
-          {view === 'dashboard' && canViewDashboard && <BuyerDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} bids={bids} watchlist={watchlist} toggleWatch={toggleWatch} profile={profile} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} setView={navigateToView}/>}
-          {view === 'studio' && canViewStudio && <StudioDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} profile={profile} ownedArtist={ownedArtist} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} onCreateArtist={handleCreateSellerArtist} onOpenArtworkModal={() => setSellerArtworkOpen(true)} onOpenCommissionModal={() => setSellerCommissionOpen(true)}/>}
+          {view === 'dashboard' && canViewDashboard && <BuyerDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} userBids={userBids} watchlist={watchlist} toggleWatch={toggleWatch} profile={profile} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} setView={navigateToView}/>}
+          {view === 'studio' && canViewStudio && <StudioDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} profile={profile} ownedArtist={ownedArtist} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} onCreateArtist={handleCreateSellerArtist} onOpenStudioModal={() => setSellerStudioOpen(true)} onOpenArtworkModal={() => setSellerArtworkOpen(true)} onOpenCommissionModal={() => setSellerCommissionOpen(true)}/>}
           {view === 'admin' && canViewAdmin && <AdminDashboard goToArtist={goToArtist} trustState={trustState}/>}
         </>
       )}
@@ -3944,6 +4174,13 @@ export default function App() {
         onClose={closeCommissionThread}
         onSend={sendThreadMessage}
         sending={sendingThreadMessage}
+      />
+      <SellerStudioModal
+        open={sellerStudioOpen}
+        profile={profile}
+        ownedArtist={ownedArtist}
+        onClose={() => setSellerStudioOpen(false)}
+        onSubmit={handleCreateSellerArtist}
       />
       <SellerArtworkModal
         open={sellerArtworkOpen}

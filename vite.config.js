@@ -155,6 +155,25 @@ function formaCatalogueApi() {
         return profile;
       };
 
+      const buyerProfile = async (client, user) => {
+        const profile = await profileFor(client, user);
+        if (profile?.role !== 'buyer') {
+          const forbidden = new Error('A buyer account is required to place bids.');
+          forbidden.statusCode = 403;
+          throw forbidden;
+        }
+        return profile;
+      };
+
+      const minimumBidIncrement = (currentBid) => {
+        const raw = Math.max(20, Number(currentBid || 0) * 0.05);
+        if (raw === 0) return 20;
+        const magnitude = Math.pow(10, Math.floor(Math.log10(raw)) - 1);
+        return Math.ceil(raw / magnitude) * magnitude;
+      };
+
+      const minimumNextBid = (currentBid) => Number(currentBid || 0) + minimumBidIncrement(currentBid);
+
       const reportPriority = (reason) => {
         if (reason === 'fraud' || reason === 'copyright' || reason === 'prohibited') return 'high';
         if (reason === 'abuse') return 'normal';
@@ -348,6 +367,135 @@ function formaCatalogueApi() {
           sendJson(res, 201, { data });
         } catch (err) {
           sendJson(res, err.statusCode || 500, { error: err.message || 'Seller commission request failed.' });
+        }
+      });
+
+      server.middlewares.use('/api/bids', async (req, res) => {
+        try {
+          if (!supabase) {
+            sendJson(res, 500, { error: 'Supabase environment is not configured.' });
+            return;
+          }
+
+          const url = new URL(req.url || '/', 'http://localhost');
+
+          if (req.method === 'GET') {
+            const artworkId = url.searchParams.get('artworkId');
+            const scope = url.searchParams.get('scope');
+
+            let query = supabase
+              .from('bids')
+              .select('*')
+              .order('placed_at', { ascending: false })
+              .limit(100);
+
+            if (scope === 'mine') {
+              const { client, token, error: authError } = authClientFromRequest(req);
+              if (authError) {
+                sendJson(res, 401, { error: authError });
+                return;
+              }
+              const user = await currentUser(client, token);
+              query = client
+                .from('bids')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('placed_at', { ascending: false })
+                .limit(100);
+            } else if (artworkId) {
+              query = query.eq('artwork_id', artworkId);
+            } else {
+              sendJson(res, 400, { error: 'artworkId or scope=mine is required.' });
+              return;
+            }
+
+            const { data, error } = await query;
+            if (error) {
+              sendJson(res, 502, { error: dbErrorMessage(error) });
+              return;
+            }
+            sendJson(res, 200, { data: data || [] });
+            return;
+          }
+
+          if (req.method === 'POST') {
+            const { client, token, error: authError } = authClientFromRequest(req);
+            if (authError) {
+              sendJson(res, 401, { error: authError });
+              return;
+            }
+
+            const user = await currentUser(client, token);
+            const profile = await buyerProfile(client, user);
+            const body = await readJsonBody(req);
+            const artworkId = String(body.artworkId || '').trim();
+            const amount = Number(body.amount);
+
+            if (!artworkId || !Number.isFinite(amount)) {
+              sendJson(res, 400, { error: 'artworkId and a numeric amount are required.' });
+              return;
+            }
+
+            const { data: artwork, error: artworkError } = await client
+              .from('artworks')
+              .select('*')
+              .eq('id', artworkId)
+              .single();
+
+            if (artworkError || !artwork) {
+              sendJson(res, 404, { error: dbErrorMessage(artworkError) || 'Artwork not found.' });
+              return;
+            }
+
+            if (new Date(artwork.ends_at).getTime() <= Date.now()) {
+              sendJson(res, 409, { error: 'Auction has ended.' });
+              return;
+            }
+
+            const minimum = minimumNextBid(Number(artwork.current_bid || 0));
+            if (amount < minimum) {
+              sendJson(res, 400, { error: `Bid must be at least $${minimum.toLocaleString('en-US')}.` });
+              return;
+            }
+
+            const displayName = String(body.displayName || profile.display_name || profile.handle || user.email || 'Anonymous')
+              .trim()
+              .slice(0, 120);
+
+            const { data: bid, error } = await client
+              .from('bids')
+              .insert({
+                user_id: user.id,
+                artwork_id: artworkId,
+                amount,
+                display_name: displayName || 'Anonymous',
+              })
+              .select()
+              .single();
+
+            if (error) {
+              sendJson(res, 502, { error: dbErrorMessage(error) });
+              return;
+            }
+
+            const { data: updatedArtwork, error: updatedError } = await client
+              .from('artworks')
+              .select('*')
+              .eq('id', artworkId)
+              .single();
+
+            if (updatedError) {
+              sendJson(res, 502, { error: dbErrorMessage(updatedError) });
+              return;
+            }
+
+            sendJson(res, 201, { data: { bid, artwork: updatedArtwork } });
+            return;
+          }
+
+          sendJson(res, 405, { error: 'Method not allowed.' });
+        } catch (err) {
+          sendJson(res, err.statusCode || 500, { error: err.message || 'Bid request failed.' });
         }
       });
 

@@ -26,6 +26,7 @@ function transformArtwork(row) {
     tags: row.tags || [],
     likes: row.like_count,
     format: row.format,
+    createdAt: row.created_at,
   };
 }
 
@@ -72,16 +73,27 @@ function transformFeedPost(row) {
 
 // ---- Fetch functions ----
 
+function shouldUseDirectSupabase(errorMessage) {
+  return /fetch failed|failed to fetch|networkerror|load failed/i.test(String(errorMessage || ''));
+}
+
 async function fetchCatalogueResource(resource) {
   if (import.meta.env.DEV) {
-    const response = await fetch(`/api/catalogue?resource=${resource}`);
-    const payload = await response.json().catch(() => ({}));
+    try {
+      const response = await fetch(`/api/catalogue?resource=${resource}`);
+      const payload = await response.json().catch(() => ({}));
 
-    if (!response.ok) {
-      throw new Error(payload.error || `Failed to load ${resource}`);
+      if (!response.ok) {
+        const message = payload.error || `Failed to load ${resource}`;
+        if (shouldUseDirectSupabase(message)) return null;
+        throw new Error(message);
+      }
+
+      return payload.data || [];
+    } catch (error) {
+      if (shouldUseDirectSupabase(error?.message)) return null;
+      throw error;
     }
-
-    return payload.data || [];
   }
 
   return null;
