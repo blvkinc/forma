@@ -11,6 +11,9 @@ import { useAuth } from './contexts/AuthContext';
 import AuthPage from './pages/AuthPage';
 import ART_VISUALS from './data/visuals';
 import { useMarketplace } from './hooks/useMarketplace';
+import { useCommissions } from './hooks/useCommissions';
+import { useTrustSafety } from './hooks/useTrustSafety';
+import { createSellerArtist, createSellerArtwork, createSellerCommission } from './lib/seller';
 import {
   minimumBidIncrement, minimumNextBid, auctionBuyerPremium,
   auctionTotalCost, auctionUrgency, shouldExtendAuction, FEE_TIERS
@@ -77,6 +80,10 @@ const GlobalStyles = () => (
     .swiss-app > * {
       position: relative;
       z-index: 1;
+    }
+
+    .swiss-app > header {
+      z-index: 100;
     }
 
     .display { font-family: 'Bricolage Grotesque', serif; letter-spacing: 0; font-weight: 500; line-height: 0.92; }
@@ -381,6 +388,17 @@ const GlobalStyles = () => (
       color: var(--card-ink);
     }
 
+    .user-menu {
+      isolation: isolate;
+    }
+
+    .user-menu-panel {
+      z-index: 240;
+      background-color: var(--card);
+      max-height: min(72vh, 520px);
+      overflow-y: auto;
+    }
+
     @media (max-width: 1180px) {
       .swiss-app header > div,
       .swiss-app main.max-w-\\[1440px\\],
@@ -664,6 +682,26 @@ const GlobalStyles = () => (
         flex-wrap: wrap;
       }
 
+      .swiss-app .admin-tabs {
+        overflow-x: auto;
+        padding-bottom: 0.25rem;
+        scrollbar-width: none;
+      }
+
+      .swiss-app .admin-tabs::-webkit-scrollbar {
+        display: none;
+      }
+
+      .swiss-app .admin-tabs .tab-pill {
+        flex: 0 0 auto;
+      }
+
+      .swiss-app .admin-report-row,
+      .swiss-app .admin-report-actions {
+        flex-direction: column;
+        align-items: stretch !important;
+      }
+
       .swiss-app footer {
         margin-top: 3rem !important;
       }
@@ -734,6 +772,35 @@ const fmt = (n) => n.toLocaleString('en-US');
 const artistById = (id) => ARTISTS.find(a => a.id === id) || { id, name: 'Unknown', handle: '?', accent: '#0E0E0C', followers: 0, verified: false };
 const artworkById = (id) => ARTWORKS.find(w => w.id === id) || { id, title: 'Unknown', currentBid: 0, tags: [] };
 const normalizeText = (value) => String(value || '').toLowerCase().trim();
+const ROLE_LABELS = {
+  buyer: 'Buyer',
+  artist: 'Seller',
+  admin: 'Admin',
+};
+const roleLabel = (role) => ROLE_LABELS[role] || 'Buyer';
+const isBuyerRole = (role) => role === 'buyer';
+const isSellerRole = (role) => role === 'artist';
+const isAdminRole = (role) => role === 'admin';
+const roleHomeView = (role) => {
+  if (isSellerRole(role)) return 'studio';
+  if (isAdminRole(role)) return 'admin';
+  return 'dashboard';
+};
+const roleHomeLabel = (role) => {
+  if (isSellerRole(role)) return 'Seller studio';
+  if (isAdminRole(role)) return 'Admin console';
+  return 'Buyer dashboard';
+};
+const VISUAL_OPTIONS = Object.keys(ART_VISUALS);
+const ACCENT_SWATCHES = ['#0E0E0C', '#E97864', '#B9C69A', '#6E8D8A', '#D2BE76', '#748D60'];
+const REPORT_REASONS = [
+  { id: 'copyright', label: 'Copyright or stolen work' },
+  { id: 'fraud', label: 'Fraud or payment risk' },
+  { id: 'misleading', label: 'Misleading listing' },
+  { id: 'abuse', label: 'Abuse or harassment' },
+  { id: 'prohibited', label: 'Prohibited content' },
+  { id: 'other', label: 'Other' },
+];
 
 const PRICE_BANDS = [
   { id: 'all', label: 'All prices', match: () => true },
@@ -817,7 +884,7 @@ const Header = ({ view, setView, role, notif, query, setQuery, profile, onSignOu
           />
           <span className="label">⌘K</span>
         </div>
-        <button onClick={() => setView('dashboard')} className="hair-all p-2 hover:bg-[var(--ink)] hover:text-[var(--bg)] transition-colors relative">
+        <button onClick={() => setView(roleHomeView(role))} className="hair-all p-2 hover:bg-[var(--ink)] hover:text-[var(--bg)] transition-colors relative" aria-label="Open account area">
           <Bell size={14}/>
           {notif > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-[var(--accent)] text-white text-[9px] flex items-center justify-center rounded-full mono">{notif}</span>}
         </button>
@@ -870,28 +937,28 @@ const UserMenu = ({ profile, role, setView, onSignOut }) => {
             <div className="label">Signed in as</div>
             <div className="display text-[22px] leading-none mt-2">{displayName}</div>
             {email && <div className="mono text-[10px] text-[var(--muted)] mt-2 truncate">{email}</div>}
-            <div className="mono text-[9px] uppercase tracking-[0.1em] text-[var(--accent)] mt-3">{role} account</div>
+            <div className="mono text-[9px] uppercase tracking-[0.1em] text-[var(--accent)] mt-3">{roleLabel(role)} account</div>
           </div>
           <div className="p-2">
             <a href="#profile" onClick={() => goTo('profile')} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-[var(--bg-2)] transition-colors" role="menuitem">
               <span className="flex items-center gap-2 text-[13px]"><User size={14}/> Profile</span>
               <ArrowRight size={12}/>
             </a>
-            {(role === 'buyer' || role === 'admin') && (
+            {isBuyerRole(role) && (
               <a href="#dashboard" onClick={() => goTo('dashboard')} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-[var(--bg-2)] transition-colors" role="menuitem">
                 <span className="flex items-center gap-2 text-[13px]"><ShoppingBag size={14}/> Buyer dashboard</span>
                 <ArrowRight size={12}/>
               </a>
             )}
-            {(role === 'artist' || role === 'admin') && (
+            {isSellerRole(role) && (
               <a href="#studio" onClick={() => goTo('studio')} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-[var(--bg-2)] transition-colors" role="menuitem">
-                <span className="flex items-center gap-2 text-[13px]"><ImageIcon size={14}/> Studio</span>
+                <span className="flex items-center gap-2 text-[13px]"><ImageIcon size={14}/> Seller studio</span>
                 <ArrowRight size={12}/>
               </a>
             )}
-            {role === 'admin' && (
+            {isAdminRole(role) && (
               <a href="#admin" onClick={() => goTo('admin')} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-[var(--bg-2)] transition-colors" role="menuitem">
-                <span className="flex items-center gap-2 text-[13px]"><Shield size={14}/> Admin</span>
+                <span className="flex items-center gap-2 text-[13px]"><Shield size={14}/> Admin console</span>
                 <ArrowRight size={12}/>
               </a>
             )}
@@ -909,31 +976,17 @@ const UserMenu = ({ profile, role, setView, onSignOut }) => {
 };
 
 const RoleSwitcher = ({ role, setView }) => {
-  // Build available dashboard buttons based on authenticated role
-  const dashboards = [];
-  if (role === 'buyer' || role === 'admin') {
-    dashboards.push({ id: 'buyer', label: 'Dashboard', target: 'dashboard' });
-  }
-  if (role === 'artist' || role === 'admin') {
-    dashboards.push({ id: 'artist', label: 'Studio', target: 'studio' });
-  }
-  if (role === 'admin') {
-    dashboards.push({ id: 'admin', label: 'Admin', target: 'admin' });
-  }
-
-  if (dashboards.length === 0) return null;
+  const target = roleHomeView(role);
+  const label = roleHomeLabel(role);
 
   return (
     <div className="hair-all flex items-center divide-x divide-[var(--hair)]">
-      {dashboards.map(r => (
-        <button
-          key={r.id}
-          onClick={() => setView(r.target)}
-          className={`px-3 py-2 mono text-[10px] uppercase tracking-[0.12em] transition-colors text-[var(--muted)] hover:text-[var(--ink)] hover:bg-[var(--bg-2)]`}
-        >
-          {r.label}
-        </button>
-      ))}
+      <button
+        onClick={() => setView(target)}
+        className="px-3 py-2 mono text-[10px] uppercase tracking-[0.12em] transition-colors text-[var(--muted)] hover:text-[var(--ink)] hover:bg-[var(--bg-2)]"
+      >
+        {label}
+      </button>
     </div>
   );
 };
@@ -1364,7 +1417,7 @@ const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist, toggl
 // ============================================================
 // ARTWORK DETAIL — Auction view
 // ============================================================
-const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids, placeBid }) => {
+const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids, placeBid, onReport }) => {
   const work = artworkById(workId);
   const artist = artistById(work.artist);
   const [bidInput, setBidInput] = useState(minimumNextBid(work.currentBid));
@@ -1408,6 +1461,7 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
                 <button onClick={() => toggleLike(work.id)} className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Heart size={12} fill={likes[work.id] ? 'currentColor' : 'none'}/></button>
                 <button className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Share2 size={12}/></button>
                 <button className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Bookmark size={12}/></button>
+                <button onClick={() => onReport({ type: 'artwork', id: work.id, label: work.title })} className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--accent)] hover:text-white" aria-label="Report artwork"><Flag size={12}/></button>
               </div>
             </div>
           </div>
@@ -1586,7 +1640,7 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
 // ============================================================
 // ARTIST PROFILE / SHOP
 // ============================================================
-const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes, toggleLike }) => {
+const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes, toggleLike, onReport }) => {
   const artist = artistById(artistId);
   const works = ARTWORKS.filter(w => w.artist === artistId);
   const commissions = COMMISSIONS.filter(c => c.artist === artistId);
@@ -1640,6 +1694,7 @@ const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes, toggl
             {isFollowing ? <><Check size={12}/> Following</> : <><Plus size={12}/> Follow</>}
           </button>
           <button className="swiss-btn ghost justify-center"><MessageCircle size={12}/> Message</button>
+          <button onClick={() => onReport({ type: 'artist', id: artist.id, label: artist.name })} className="swiss-btn ghost justify-center"><Flag size={12}/> Report</button>
           <div className="hair-all p-4 mt-2">
             <div className="label">Office hours</div>
             <div className="mono text-[12px] mt-2">MON-THU · 09:00-15:00 CET</div>
@@ -1747,10 +1802,17 @@ const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes, toggl
 // ============================================================
 // COMMISSIONS BOARD
 // ============================================================
-const CommissionCard = ({ commission }) => {
+const CommissionCard = ({ commission, role, onBookCommission }) => {
   const a = artistById(commission.artist);
   const left = commission.slots - commission.taken;
   const full = left === 0;
+  const canBook = isBuyerRole(role) && !full;
+  const buttonLabel = full
+    ? 'Waitlist'
+    : isBuyerRole(role)
+      ? 'Book a slot'
+      : 'Buyer account required';
+
   return (
     <div className={`hair-all p-6 bg-[var(--card)] transition-all ${full ? 'opacity-60' : ''}`}>
       <div className="flex items-start justify-between">
@@ -1790,14 +1852,20 @@ const CommissionCard = ({ commission }) => {
         ))}
       </div>
 
-      <button disabled={full} className={`swiss-btn w-full mt-5 justify-center ${full ? 'opacity-50 cursor-not-allowed' : 'accent'}`}>
-        {full ? <>Waitlist <Plus size={12}/></> : <>Book a slot <ArrowRight size={12}/></>}
-      </button>
+      {onBookCommission && (
+        <button
+          disabled={full}
+          onClick={() => onBookCommission(commission)}
+          className={`swiss-btn w-full mt-5 justify-center ${canBook ? 'accent' : 'ghost'}`}
+        >
+          {buttonLabel} {full ? <Plus size={12}/> : <ArrowRight size={12}/>}
+        </button>
+      )}
     </div>
   );
 };
 
-const CommissionsView = ({ goToArtist }) => {
+const CommissionsView = ({ goToArtist, role, onBookCommission }) => {
   const [filter, setFilter] = useState('all');
   let visible = COMMISSIONS;
   if (filter === 'open') visible = visible.filter(c => c.slots - c.taken > 0);
@@ -1843,9 +1911,483 @@ const CommissionsView = ({ goToArtist }) => {
       </div>
 
       <div className="grid grid-cols-2 gap-6">
-        {visible.map(c => <CommissionCard key={c.id} commission={c}/>)}
+        {visible.map(c => <CommissionCard key={c.id} commission={c} role={role} onBookCommission={onBookCommission}/>)}
       </div>
     </main>
+  );
+};
+
+const CommissionBookingModal = ({ commission, role, onClose, onConfirm, getPriceBreakdown }) => {
+  const [briefText, setBriefText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  if (!commission) return null;
+
+  const artist = artistById(commission.artist);
+  const breakdown = getPriceBreakdown(commission.price);
+  const canSubmit = isBuyerRole(role) && briefText.trim().length >= 12 && !submitting;
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!canSubmit) return;
+    setSubmitting(true);
+    await onConfirm(briefText.trim());
+    setSubmitting(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[260] bg-[rgba(14,14,12,0.42)] backdrop-blur-sm flex items-center justify-center p-4">
+      <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full max-w-[640px] max-h-[92vh] overflow-y-auto shadow-[0_24px_80px_rgba(14,14,12,0.22)]">
+        <div className="p-6 hair-b flex items-start justify-between gap-4">
+          <div>
+            <div className="label">Commission booking</div>
+            <h2 className="display text-[34px] mt-2">{commission.title}</h2>
+            <div className="mono text-[11px] text-[var(--muted)] mt-2">with {artist.handle}</div>
+          </div>
+          <button type="button" onClick={onClose} className="hair-all w-9 h-9 inline-flex items-center justify-center hover:bg-[var(--bg-2)]" aria-label="Close booking">
+            <X size={16}/>
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {!isBuyerRole(role) && (
+            <div className="hair-all p-4 bg-[var(--accent-soft)] text-[var(--accent)] text-[13px]">
+              Booking is reserved for buyer accounts. Seller and admin accounts stay in their own workspaces.
+            </div>
+          )}
+
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              ['Slot price', `$${fmt(breakdown.slotPrice)}`],
+              ['Platform fee', `$${fmt(breakdown.platformFee)}`],
+              ['Artist payout', `$${fmt(breakdown.artistPayout)}`],
+            ].map(([label, value]) => (
+              <div key={label} className="hair-all p-4">
+                <div className="label">{label}</div>
+                <div className="mono text-[20px] mt-1">{value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <label htmlFor="commission-brief" className="label mb-2 block">Project brief</label>
+            <textarea
+              id="commission-brief"
+              value={briefText}
+              onChange={event => setBriefText(event.target.value)}
+              className="swiss-input min-h-[150px]"
+              placeholder="Describe the piece, references, deadline pressure, and usage needs."
+              maxLength={1200}
+              disabled={!isBuyerRole(role)}
+            />
+            <div className="mono text-[10px] text-[var(--muted)] mt-2">{briefText.trim().length}/1200</div>
+          </div>
+
+          <div className="hair-all p-4 bg-[var(--bg-2)] text-[13px] leading-relaxed">
+            The slot is created in Supabase as a booked commission. Payment escrow is represented as pending until the Stripe adapter is added.
+          </div>
+        </div>
+
+        <div className="p-6 hair-t flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="swiss-btn ghost">Cancel</button>
+          <button type="submit" disabled={!canSubmit} className={`swiss-btn accent ${!canSubmit ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            {submitting ? 'Booking...' : 'Confirm booking'} <ArrowRight size={12}/>
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+const CommissionThreadModal = ({ booking, activeThread, user, onClose, onSend, sending }) => {
+  const [message, setMessage] = useState('');
+
+  if (!booking || !activeThread) return null;
+
+  const submit = async (event) => {
+    event.preventDefault();
+    const body = message.trim();
+    if (!body) return;
+    const result = await onSend(body);
+    if (!result?.error) setMessage('');
+  };
+
+  return (
+    <div className="fixed inset-0 z-[260] bg-[rgba(14,14,12,0.42)] backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="hair-all bg-[var(--card)] w-full max-w-[760px] max-h-[92vh] overflow-hidden shadow-[0_24px_80px_rgba(14,14,12,0.22)] flex flex-col">
+        <div className="p-6 hair-b flex items-start justify-between gap-4">
+          <div>
+            <div className="label">Commission thread</div>
+            <h2 className="display text-[32px] mt-2">{booking.commission?.title || 'Commission'}</h2>
+            <div className="mono text-[11px] text-[var(--muted)] mt-2">{booking.artist?.handle || artistById(booking.artistId).handle} · {booking.status}</div>
+          </div>
+          <button type="button" onClick={onClose} className="hair-all w-9 h-9 inline-flex items-center justify-center hover:bg-[var(--bg-2)]" aria-label="Close thread">
+            <X size={16}/>
+          </button>
+        </div>
+
+        <div className="p-6 overflow-y-auto space-y-3 min-h-[240px]">
+          {activeThread.messages.length === 0 && (
+            <div className="hair-all p-6 text-center text-[13px] text-[var(--muted)]">
+              No messages yet. Start the project thread with a concise note.
+            </div>
+          )}
+          {activeThread.messages.map(msg => {
+            const mine = msg.senderId === user?.id;
+            return (
+              <div key={msg.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[78%] hair-all p-3 ${mine ? 'bg-[var(--ink)] text-[var(--bg)]' : 'bg-[var(--bg-2)]'}`}>
+                  <div className="mono text-[9px] uppercase mb-1 opacity-70">{mine ? 'You' : 'Counterparty'}</div>
+                  <div className="text-[13px] leading-relaxed">{msg.body}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <form onSubmit={submit} className="p-4 hair-t flex gap-3">
+          <input
+            value={message}
+            onChange={event => setMessage(event.target.value)}
+            className="swiss-input flex-1"
+            placeholder="Write a message..."
+            maxLength={800}
+          />
+          <button type="submit" disabled={sending || !message.trim()} className={`swiss-btn accent ${sending || !message.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            Send <Send size={12}/>
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const ReportModal = ({ target, onClose, onSubmit }) => {
+  const [reason, setReason] = useState('misleading');
+  const [details, setDetails] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  if (!target) return null;
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setSubmitting(true);
+    const ok = await onSubmit({
+      targetType: target.type,
+      targetId: target.id,
+      reason,
+      details,
+    });
+    setSubmitting(false);
+    if (ok) {
+      setDetails('');
+      setReason('misleading');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[260] bg-[rgba(14,14,12,0.42)] backdrop-blur-sm flex items-center justify-center p-4">
+      <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full max-w-[620px] max-h-[92vh] overflow-y-auto shadow-[0_24px_80px_rgba(14,14,12,0.22)]">
+        <div className="p-6 hair-b flex items-start justify-between gap-4">
+          <div>
+            <div className="label">Trust report</div>
+            <h2 className="display text-[34px] mt-2">Report {target.label}.</h2>
+            <div className="mono text-[11px] text-[var(--muted)] mt-2">{target.type} · {target.id}</div>
+          </div>
+          <button type="button" onClick={onClose} className="hair-all w-9 h-9 inline-flex items-center justify-center hover:bg-[var(--bg-2)]" aria-label="Close report">
+            <X size={16}/>
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          <div>
+            <label htmlFor="report-reason" className="label mb-2 block">Reason</label>
+            <select
+              id="report-reason"
+              value={reason}
+              onChange={event => setReason(event.target.value)}
+              className="swiss-input"
+            >
+              {REPORT_REASONS.map(option => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="report-details" className="label mb-2 block">Details</label>
+            <textarea
+              id="report-details"
+              value={details}
+              onChange={event => setDetails(event.target.value)}
+              className="swiss-input min-h-[150px]"
+              placeholder="Add links, context, or what the admin should review."
+              maxLength={1200}
+            />
+          </div>
+          <div className="hair-all p-4 bg-[var(--bg-2)] text-[13px] leading-relaxed">
+            Reports go to the admin queue with your account attached. False reports can affect account standing.
+          </div>
+        </div>
+
+        <div className="p-6 hair-t flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="swiss-btn ghost">Cancel</button>
+          <button type="submit" disabled={submitting} className={`swiss-btn accent ${submitting ? 'opacity-60 cursor-wait' : ''}`}>
+            {submitting ? 'Submitting...' : 'Submit report'} <Flag size={12}/>
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+const SellerOnboardingCard = ({ profile, onCreate }) => {
+  const [form, setForm] = useState({
+    handle: profile?.handle || profile?.display_name || '',
+    name: profile?.display_name || '',
+    city: profile?.city || '',
+    bio: profile?.bio || '',
+    accent: ACCENT_SWATCHES[0],
+  });
+  const [saving, setSaving] = useState(false);
+
+  const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    await onCreate(form);
+    setSaving(false);
+  };
+
+  return (
+    <form onSubmit={submit} className="hair-all bg-[var(--card)] p-6 mb-8">
+      <div className="flex justify-between items-start gap-4 hair-b pb-5 mb-6">
+        <div>
+          <div className="label">Seller setup</div>
+          <h2 className="display text-[32px] mt-2">Create your studio.</h2>
+        </div>
+        <button type="submit" disabled={saving || !form.name.trim() || !form.handle.trim()} className={`swiss-btn accent ${saving ? 'opacity-60 cursor-wait' : ''}`}>
+          {saving ? 'Creating...' : 'Create studio'} <ArrowRight size={12}/>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-5">
+        <div>
+          <label htmlFor="seller-name" className="label mb-2 block">Studio name</label>
+          <input id="seller-name" value={form.name} onChange={event => updateField('name', event.target.value)} className="swiss-input" maxLength={120} required/>
+        </div>
+        <div>
+          <label htmlFor="seller-handle" className="label mb-2 block">Handle</label>
+          <input id="seller-handle" value={form.handle} onChange={event => updateField('handle', event.target.value)} className="swiss-input" maxLength={48} required/>
+        </div>
+        <div>
+          <label htmlFor="seller-city" className="label mb-2 block">City</label>
+          <input id="seller-city" value={form.city} onChange={event => updateField('city', event.target.value)} className="swiss-input" maxLength={120}/>
+        </div>
+        <div>
+          <label className="label mb-2 block">Accent</label>
+          <div className="grid grid-cols-6 gap-2">
+            {ACCENT_SWATCHES.map(color => (
+              <button
+                key={color}
+                type="button"
+                onClick={() => updateField('accent', color)}
+                className={`h-11 hair-all ${form.accent === color ? 'outline outline-2 outline-[var(--ink)]' : ''}`}
+                style={{ backgroundColor: color }}
+                aria-label={`Use accent ${color}`}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="col-span-2">
+          <label htmlFor="seller-bio" className="label mb-2 block">Bio</label>
+          <textarea id="seller-bio" value={form.bio} onChange={event => updateField('bio', event.target.value)} className="swiss-input min-h-[110px]" maxLength={900}/>
+        </div>
+      </div>
+    </form>
+  );
+};
+
+const SellerArtworkModal = ({ open, onClose, onSubmit }) => {
+  const [form, setForm] = useState({
+    title: '',
+    visual: VISUAL_OPTIONS[0] || 'v1',
+    startBid: '120',
+    durationHours: '120',
+    year: String(new Date().getFullYear()),
+    dimensions: '3000 x 3000 px',
+    edition: '1/1',
+    format: 'PNG / source',
+    tags: 'digital, abstract',
+  });
+  const [saving, setSaving] = useState(false);
+
+  if (!open) return null;
+
+  const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    await onSubmit({
+      ...form,
+      startBid: Number(form.startBid),
+      durationHours: Number(form.durationHours),
+      year: Number(form.year),
+    });
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[260] bg-[rgba(14,14,12,0.42)] backdrop-blur-sm flex items-center justify-center p-4">
+      <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full max-w-[860px] max-h-[92vh] overflow-y-auto shadow-[0_24px_80px_rgba(14,14,12,0.22)]">
+        <div className="p-6 hair-b flex items-start justify-between gap-4">
+          <div>
+            <div className="label">New auction</div>
+            <h2 className="display text-[34px] mt-2">List new work.</h2>
+          </div>
+          <button type="button" onClick={onClose} className="hair-all w-9 h-9 inline-flex items-center justify-center hover:bg-[var(--bg-2)]" aria-label="Close artwork form">
+            <X size={16}/>
+          </button>
+        </div>
+
+        <div className="p-6 grid grid-cols-12 gap-6">
+          <div className="col-span-5">
+            <div className="hair-all bg-[var(--bg-2)]">
+              <ArtVisual visual={form.visual}/>
+            </div>
+            <div className="grid grid-cols-4 gap-2 mt-3">
+              {VISUAL_OPTIONS.slice(0, 12).map(visual => (
+                <button
+                  key={visual}
+                  type="button"
+                  onClick={() => updateField('visual', visual)}
+                  className={`hair-all overflow-hidden ${form.visual === visual ? 'outline outline-2 outline-[var(--ink)]' : ''}`}
+                  aria-label={`Select visual ${visual}`}
+                >
+                  <ArtVisual visual={visual}/>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="col-span-7 grid grid-cols-2 gap-5">
+            <div className="col-span-2">
+              <label htmlFor="artwork-title" className="label mb-2 block">Title</label>
+              <input id="artwork-title" value={form.title} onChange={event => updateField('title', event.target.value)} className="swiss-input" maxLength={140} required/>
+            </div>
+            <div>
+              <label htmlFor="artwork-bid" className="label mb-2 block">Starting bid</label>
+              <input id="artwork-bid" type="number" min="20" value={form.startBid} onChange={event => updateField('startBid', event.target.value)} className="swiss-input" required/>
+            </div>
+            <div>
+              <label htmlFor="artwork-duration" className="label mb-2 block">Duration hours</label>
+              <input id="artwork-duration" type="number" min="24" max="168" value={form.durationHours} onChange={event => updateField('durationHours', event.target.value)} className="swiss-input" required/>
+            </div>
+            <div>
+              <label htmlFor="artwork-year" className="label mb-2 block">Year</label>
+              <input id="artwork-year" type="number" value={form.year} onChange={event => updateField('year', event.target.value)} className="swiss-input"/>
+            </div>
+            <div>
+              <label htmlFor="artwork-edition" className="label mb-2 block">Edition</label>
+              <input id="artwork-edition" value={form.edition} onChange={event => updateField('edition', event.target.value)} className="swiss-input" maxLength={80}/>
+            </div>
+            <div>
+              <label htmlFor="artwork-dimensions" className="label mb-2 block">Dimensions</label>
+              <input id="artwork-dimensions" value={form.dimensions} onChange={event => updateField('dimensions', event.target.value)} className="swiss-input" maxLength={120}/>
+            </div>
+            <div>
+              <label htmlFor="artwork-format" className="label mb-2 block">Format</label>
+              <input id="artwork-format" value={form.format} onChange={event => updateField('format', event.target.value)} className="swiss-input" maxLength={80}/>
+            </div>
+            <div className="col-span-2">
+              <label htmlFor="artwork-tags" className="label mb-2 block">Tags</label>
+              <input id="artwork-tags" value={form.tags} onChange={event => updateField('tags', event.target.value)} className="swiss-input" maxLength={160}/>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 hair-t flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="swiss-btn ghost">Cancel</button>
+          <button type="submit" disabled={saving || !form.title.trim()} className={`swiss-btn accent ${saving ? 'opacity-60 cursor-wait' : ''}`}>
+            {saving ? 'Listing...' : 'List work'} <ArrowRight size={12}/>
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+const SellerCommissionModal = ({ open, onClose, onSubmit }) => {
+  const [form, setForm] = useState({
+    title: '',
+    slots: '3',
+    price: '320',
+    days: '14',
+    brief: '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  if (!open) return null;
+
+  const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    await onSubmit({
+      ...form,
+      slots: Number(form.slots),
+      price: Number(form.price),
+      days: Number(form.days),
+    });
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[260] bg-[rgba(14,14,12,0.42)] backdrop-blur-sm flex items-center justify-center p-4">
+      <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full max-w-[640px] max-h-[92vh] overflow-y-auto shadow-[0_24px_80px_rgba(14,14,12,0.22)]">
+        <div className="p-6 hair-b flex items-start justify-between gap-4">
+          <div>
+            <div className="label">New commission</div>
+            <h2 className="display text-[34px] mt-2">Open a board.</h2>
+          </div>
+          <button type="button" onClick={onClose} className="hair-all w-9 h-9 inline-flex items-center justify-center hover:bg-[var(--bg-2)]" aria-label="Close commission form">
+            <X size={16}/>
+          </button>
+        </div>
+
+        <div className="p-6 grid grid-cols-2 gap-5">
+          <div className="col-span-2">
+            <label htmlFor="seller-commission-title" className="label mb-2 block">Title</label>
+            <input id="seller-commission-title" value={form.title} onChange={event => updateField('title', event.target.value)} className="swiss-input" maxLength={140} required/>
+          </div>
+          <div>
+            <label htmlFor="seller-commission-slots" className="label mb-2 block">Slots</label>
+            <input id="seller-commission-slots" type="number" min="1" max="12" value={form.slots} onChange={event => updateField('slots', event.target.value)} className="swiss-input" required/>
+          </div>
+          <div>
+            <label htmlFor="seller-commission-price" className="label mb-2 block">Price</label>
+            <input id="seller-commission-price" type="number" min="20" value={form.price} onChange={event => updateField('price', event.target.value)} className="swiss-input" required/>
+          </div>
+          <div>
+            <label htmlFor="seller-commission-days" className="label mb-2 block">Delivery days</label>
+            <input id="seller-commission-days" type="number" min="1" max="60" value={form.days} onChange={event => updateField('days', event.target.value)} className="swiss-input" required/>
+          </div>
+          <div className="col-span-2">
+            <label htmlFor="seller-commission-brief" className="label mb-2 block">Brief</label>
+            <textarea id="seller-commission-brief" value={form.brief} onChange={event => updateField('brief', event.target.value)} className="swiss-input min-h-[150px]" maxLength={900}/>
+          </div>
+        </div>
+
+        <div className="p-6 hair-t flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="swiss-btn ghost">Cancel</button>
+          <button type="submit" disabled={saving || !form.title.trim()} className={`swiss-btn accent ${saving ? 'opacity-60 cursor-wait' : ''}`}>
+            {saving ? 'Opening...' : 'Open board'} <ArrowRight size={12}/>
+          </button>
+        </div>
+      </form>
+    </div>
   );
 };
 
@@ -2039,25 +2581,31 @@ const ArtistsView = ({ goToArtist, follows, toggleFollow }) => (
 // ============================================================
 // BUYER DASHBOARD
 // ============================================================
-const BuyerDashboard = ({ goToArtwork, likes, toggleLike, bids, watchlist, toggleWatch }) => {
+const BuyerDashboard = ({ goToArtwork, likes, toggleLike, bids, watchlist, toggleWatch, profile, commissionState, onOpenCommissionThread, setView }) => {
   const [tab, setTab] = useState('bids');
   const watchedWorks = ARTWORKS.filter(w => watchlist[w.id]);
+  const displayName = profile?.display_name || profile?.email?.split('@')[0] || 'Buyer';
+  const buyerBookings = commissionState?.buyerBookings || [];
+  const escrowTotal = buyerBookings.reduce((total, booking) => total + Number(booking.price || 0), 0);
+  const activeBidRows = Object.entries(bids || {}).flatMap(([artworkId, rows]) =>
+    (rows || []).map(row => ({ artworkId, ...row }))
+  );
 
   return (
     <main className="fade-in max-w-[1440px] mx-auto px-8 py-10">
       <div className="hair-b pb-4 mb-8 flex justify-between items-end">
         <div>
-          <div className="label mb-2">№ DASHBOARD — Buyer / 0xCarmen</div>
-          <h1 className="display text-[56px] leading-tight">Hello, Carmen.</h1>
+          <div className="label mb-2">№ DASHBOARD — Buyer</div>
+          <h1 className="display text-[56px] leading-tight">Hello, {displayName}.</h1>
         </div>
-        <button className="swiss-btn ghost">Account settings</button>
+        <button onClick={() => setView('profile')} className="swiss-btn ghost">Account settings</button>
       </div>
 
       <div className="grid grid-cols-4 gap-5 mb-10">
         {[
-          {l:'Active bids', v:'7', d:'2 leading'},
-          {l:'In escrow', v:'$1,840', d:'1 commission'},
-          {l:'Acquired', v:'14 works', d:'$8,420 lifetime'},
+          {l:'Active bids', v:String(activeBidRows.length), d: activeBidRows.length ? 'Loaded from bid history' : 'No bids loaded yet'},
+          {l:'In escrow', v:`$${fmt(escrowTotal)}`, d:`${buyerBookings.length} commission${buyerBookings.length === 1 ? '' : 's'}`},
+          {l:'Acquired', v:'0 works', d:'Settlements arrive after auction close'},
           {l:'Watching', v:String(watchedWorks.length), d: watchedWorks.length ? `${watchedWorks.filter(w => w.endsAt < 1000*60*60*24).length} ending today` : 'No saved auctions yet'},
         ].map((s,i) => (
           <div key={i} className="hair-all p-5 bg-[var(--card)]">
@@ -2075,6 +2623,7 @@ const BuyerDashboard = ({ goToArtwork, likes, toggleLike, bids, watchlist, toggl
       </div>
 
       {tab === 'bids' && (
+        activeBidRows.length ? (
         <div>
           <div className="grid grid-cols-12 gap-4 label hair-b pb-3">
             <div className="col-span-1">№</div>
@@ -2083,11 +2632,11 @@ const BuyerDashboard = ({ goToArtwork, likes, toggleLike, bids, watchlist, toggl
             <div className="col-span-2">Status</div>
             <div className="col-span-2 text-right">Ends in</div>
           </div>
-          {ARTWORKS.slice(0,7).map((w,i) => {
-            const isLeading = i % 3 === 0;
-            const isOutbid = i % 3 === 1;
+          {activeBidRows.map((bid,i) => {
+            const w = artworkById(bid.artworkId);
+            const isLeading = Number(bid.amount) >= Number(w.currentBid || 0);
             return (
-              <div key={w.id} onClick={() => goToArtwork(w.id)} className="grid grid-cols-12 gap-4 py-4 hair-b items-center cursor-pointer hover:bg-[var(--card)] transition-colors">
+              <div key={`${w.id}-${i}`} onClick={() => goToArtwork(w.id)} className="grid grid-cols-12 gap-4 py-4 hair-b items-center cursor-pointer hover:bg-[var(--card)] transition-colors">
                 <div className="col-span-1 mono text-[11px] text-[var(--muted)]">{String(i+1).padStart(3,'0')}</div>
                 <div className="col-span-5 flex items-center gap-3">
                   <div className="w-12 h-12 hair-all flex-shrink-0">
@@ -2098,10 +2647,10 @@ const BuyerDashboard = ({ goToArtwork, likes, toggleLike, bids, watchlist, toggl
                     <div className="mono text-[11px] text-[var(--muted)]">{artistById(w.artist).handle}</div>
                   </div>
                 </div>
-                <div className="col-span-2 mono text-[14px]">${fmt(w.currentBid - 20)}</div>
+                <div className="col-span-2 mono text-[14px]">${fmt(Number(bid.amount || 0))}</div>
                 <div className="col-span-2">
-                  <span className={`mono text-[9px] uppercase tracking-[0.12em] px-2 py-1 ${isLeading ? 'bg-[var(--good)] text-white' : isOutbid ? 'bg-[var(--accent)] text-white' : 'hair-all'}`}>
-                    {isLeading ? 'LEADING' : isOutbid ? 'OUTBID' : 'WATCHING'}
+                  <span className={`mono text-[9px] uppercase tracking-[0.12em] px-2 py-1 ${isLeading ? 'bg-[var(--good)] text-white' : 'bg-[var(--accent)] text-white'}`}>
+                    {isLeading ? 'LEADING' : 'OUTBID'}
                   </span>
                 </div>
                 <div className="col-span-2 text-right mono text-[13px]">{formatTime(w.endsAt)}</div>
@@ -2109,6 +2658,13 @@ const BuyerDashboard = ({ goToArtwork, likes, toggleLike, bids, watchlist, toggl
             );
           })}
         </div>
+        ) : (
+          <div className="hair-all p-10 text-center bg-[var(--card)]">
+            <Gavel size={22} className="mx-auto text-[var(--muted)]"/>
+            <div className="display text-[28px] mt-3">No bid history yet.</div>
+            <p className="text-[14px] text-[var(--muted)] mt-2">Open an artwork and place a bid to populate this dashboard.</p>
+          </div>
+        )
       )}
 
       {tab === 'watching' && (
@@ -2128,55 +2684,49 @@ const BuyerDashboard = ({ goToArtwork, likes, toggleLike, bids, watchlist, toggl
       )}
 
       {tab === 'acquired' && (
-        <div className="grid grid-cols-2 gap-6">
-          {ARTWORKS.slice(4,8).map(w => (
-            <div key={w.id} className="hair-all p-5 bg-[var(--card)] flex gap-5">
-              <div className="w-32 h-32 hair-all flex-shrink-0"><ArtVisual visual={w.visual}/></div>
-              <div className="flex-1">
-                <div className="display text-[22px]">{w.title}</div>
-                <div className="mono text-[11px] text-[var(--muted)] mt-1">{artistById(w.artist).handle} · won 23 Mar 2026</div>
-                <div className="mt-4 grid grid-cols-2 gap-y-2 text-[12px]">
-                  <span className="text-[var(--muted)]">Paid</span><span className="mono">${fmt(w.currentBid)}</span>
-                  <span className="text-[var(--muted)]">Format</span><span>{w.format}</span>
-                </div>
-                <button className="swiss-btn mt-4 text-[10px]">Download files</button>
-              </div>
-            </div>
-          ))}
+        <div className="hair-all p-10 text-center bg-[var(--card)]">
+          <ImageIcon size={22} className="mx-auto text-[var(--muted)]"/>
+          <div className="display text-[28px] mt-3">No acquired works yet.</div>
+          <p className="text-[14px] text-[var(--muted)] mt-2">Won auctions and delivered files will appear here after checkout is connected.</p>
         </div>
       )}
 
       {tab === 'commissions' && (
+        buyerBookings.length ? (
         <div className="space-y-4">
-          {[
-            {title:'Custom typographic poster', artist:'kestner.studio', stage:2, total:4, status:'In progress', due:'5d', amount:480},
-            {title:'Topographic map, Faroe Islands', artist:'pauline.s', stage:4, total:4, status:'Awaiting review', due:'Now', amount:320},
-          ].map((c,i) => (
-            <div key={i} className="hair-all p-6 bg-[var(--card)]">
+          {buyerBookings.map((c) => (
+            <div key={c.id} className="hair-all p-6 bg-[var(--card)]">
               <div className="flex justify-between items-start">
                 <div>
-                  <div className="display text-[24px]">{c.title}</div>
-                  <div className="mono text-[11px] text-[var(--muted)] mt-1">with {c.artist}</div>
+                  <div className="display text-[24px]">{c.commission?.title || 'Commission'}</div>
+                  <div className="mono text-[11px] text-[var(--muted)] mt-1">with {c.artist?.handle || artistById(c.artistId).handle}</div>
                 </div>
-                <span className="mono text-[9px] uppercase tracking-[0.15em] px-2 py-1 bg-[var(--accent-soft)] text-[var(--accent)]">{c.status}</span>
+                <span className="mono text-[9px] uppercase tracking-[0.15em] px-2 py-1 bg-[var(--accent-soft)] text-[var(--accent)]">{commissionState.stateLabel(c.status)}</span>
               </div>
               <div className="mt-5 flex gap-1">
                 {['Booked','Brief','Drafts','Delivery'].map((s,j) => (
                   <div key={j} className="flex-1">
-                    <div className={`h-1.5 ${j < c.stage ? 'bg-[var(--ink)]' : 'bg-[var(--hair)]'}`}/>
+                    <div className={`h-1.5 ${j === 0 ? 'bg-[var(--ink)]' : 'bg-[var(--hair)]'}`}/>
                     <div className="mono text-[9px] uppercase tracking-[0.1em] mt-2 text-[var(--muted)]">0{j+1} {s}</div>
                   </div>
                 ))}
               </div>
               <div className="mt-5 pt-4 hair-t grid grid-cols-4 gap-4">
-                <div><div className="label">Amount</div><div className="mono mt-1">${fmt(c.amount)}</div></div>
+                <div><div className="label">Amount</div><div className="mono mt-1">${fmt(c.price)}</div></div>
                 <div><div className="label">Status</div><div className="mt-1 text-[13px]">Escrowed</div></div>
-                <div><div className="label">Due</div><div className="mono mt-1">{c.due}</div></div>
-                <div className="flex justify-end items-end"><button className="swiss-btn">Open thread <ArrowRight size={12}/></button></div>
+                <div><div className="label">Due</div><div className="mono mt-1">{c.commission?.days || '-'}d</div></div>
+                <div className="flex justify-end items-end"><button onClick={() => onOpenCommissionThread(c)} className="swiss-btn">Open thread <ArrowRight size={12}/></button></div>
               </div>
             </div>
           ))}
         </div>
+        ) : (
+          <div className="hair-all p-10 text-center bg-[var(--card)]">
+            <Briefcase size={22} className="mx-auto text-[var(--muted)]"/>
+            <div className="display text-[28px] mt-3">No commission bookings yet.</div>
+            <p className="text-[14px] text-[var(--muted)] mt-2">Book an open seller slot from the commissions board.</p>
+          </div>
+        )
       )}
     </main>
   );
@@ -2185,29 +2735,36 @@ const BuyerDashboard = ({ goToArtwork, likes, toggleLike, bids, watchlist, toggl
 // ============================================================
 // ARTIST STUDIO DASHBOARD
 // ============================================================
-const StudioDashboard = ({ goToArtwork, likes, toggleLike }) => {
+const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist, commissionState, onOpenCommissionThread, onCreateArtist, onOpenArtworkModal, onOpenCommissionModal }) => {
   const [tab, setTab] = useState('overview');
+  const ownedWorks = ownedArtist ? ARTWORKS.filter(w => w.artist === ownedArtist.id) : [];
+  const ownedCommissions = ownedArtist ? COMMISSIONS.filter(c => c.artist === ownedArtist.id) : [];
+  const sellerBookings = commissionState?.artistBookings || [];
+  const escrowTotal = sellerBookings.reduce((total, booking) => total + Number(booking.price || 0), 0);
+  const displayName = ownedArtist?.handle || profile?.handle || profile?.display_name || 'seller';
 
   return (
     <main className="fade-in max-w-[1440px] mx-auto px-8 py-10">
       <div className="hair-b pb-4 mb-8 flex justify-between items-end">
         <div>
-          <div className="label mb-2">№ STUDIO — Artist / kestner.studio</div>
+          <div className="label mb-2">№ STUDIO — Seller / {displayName}</div>
           <h1 className="display text-[56px] leading-tight">Studio, today.</h1>
         </div>
         <div className="flex gap-3">
-          <button className="swiss-btn ghost"><Plus size={12}/> New commission</button>
-          <button className="swiss-btn"><Plus size={12}/> List new work</button>
+          <button onClick={onOpenCommissionModal} disabled={!ownedArtist} className={`swiss-btn ghost ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}><Plus size={12}/> New commission</button>
+          <button onClick={onOpenArtworkModal} disabled={!ownedArtist} className={`swiss-btn ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}><Plus size={12}/> List new work</button>
         </div>
       </div>
 
+      {!ownedArtist && <SellerOnboardingCard profile={profile} onCreate={onCreateArtist}/>}
+
       <div className="grid grid-cols-5 gap-5 mb-10">
         {[
-          {l:'Live auctions',v:'4',d:'2 ending today'},
-          {l:'Open slots',v:'3 / 6',d:'Across 2 commissions'},
-          {l:'In escrow',v:'$2,640',d:'4 commissions'},
-          {l:'Payout (Mon)',v:'$3,920',d:'After 12% fee'},
-          {l:'Followers',v:'+87',d:'Last 7 days'},
+          {l:'Live auctions',v:String(ownedWorks.length),d: ownedWorks.length ? `${ownedWorks.filter(w => w.endsAt < 1000*60*60*24).length} ending today` : 'No listed works'},
+          {l:'Open slots',v:`${ownedCommissions.reduce((sum, c) => sum + Math.max(0, c.slots - c.taken), 0)}`,d:`Across ${ownedCommissions.length} boards`},
+          {l:'In escrow',v:`$${fmt(escrowTotal)}`,d:`${sellerBookings.length} commissions`},
+          {l:'Payout (Mon)',v:`$${fmt(Math.round(escrowTotal * 0.85))}`,d:'After platform fee'},
+          {l:'Followers',v: ownedArtist ? fmt(ownedArtist.followers || 0) : '0',d:'From Supabase artist row'},
         ].map((s,i) => (
           <div key={i} className="hair-all p-5 bg-[var(--card)]">
             <div className="label">{s.l}</div>
@@ -2217,7 +2774,7 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike }) => {
         ))}
       </div>
 
-      <div className="flex gap-2 mb-8">
+      <div className="admin-tabs flex gap-2 mb-8">
         {[{k:'overview',l:'Overview'},{k:'auctions',l:'Auctions'},{k:'commissions',l:'Commissions'},{k:'payouts',l:'Payouts'},{k:'audience',l:'Audience'}].map(t => (
           <button key={t.k} onClick={() => setTab(t.k)} className={`tab-pill ${tab===t.k?'active':''}`}>{t.l}</button>
         ))}
@@ -2238,7 +2795,7 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike }) => {
                 ))}
                 {/* Bars */}
                 {Array.from({length: 30}).map((_,i) => {
-                  const h = 30 + Math.abs(Math.sin(i*0.6)*100) + Math.random()*40;
+                  const h = 36 + Math.abs(Math.sin((i + ownedWorks.length + sellerBookings.length) * 0.6) * 112);
                   return <rect key={i} x={i*26+4} y={240-h} width="20" height={h} fill={i === 22 ? '#FF3B1F' : '#0E0E0C'}/>;
                 })}
                 <line x1="0" y1="240" x2="800" y2="240" stroke="#0E0E0C"/>
@@ -2297,7 +2854,7 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike }) => {
             <div className="col-span-2">Ends</div>
             <div className="col-span-1 text-right">Actions</div>
           </div>
-          {ARTWORKS.filter(w => w.artist === 'a1').map((w,i) => (
+          {ownedWorks.map((w,i) => (
             <div key={w.id} className="grid grid-cols-12 gap-4 py-4 hair-b items-center">
               <div className="col-span-1 mono text-[11px] text-[var(--muted)]">{String(i+1).padStart(3,'0')}</div>
               <div className="col-span-4 flex items-center gap-3">
@@ -2313,18 +2870,40 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike }) => {
               <div className="col-span-1 text-right"><button className="hair-all w-7 h-7 inline-flex items-center justify-center"><MoreHorizontal size={14}/></button></div>
             </div>
           ))}
-          <button className="swiss-btn mt-8"><Plus size={12}/> List new auction</button>
+          {ownedWorks.length === 0 && (
+            <div className="hair-all p-8 text-center bg-[var(--card)]">
+              <div className="display text-[24px]">No seller auctions yet.</div>
+              <p className="text-[13px] text-[var(--muted)] mt-2">Linked seller works from Supabase will appear here.</p>
+            </div>
+          )}
+          <button onClick={onOpenArtworkModal} disabled={!ownedArtist} className={`swiss-btn mt-8 ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}><Plus size={12}/> List new auction</button>
         </div>
       )}
 
       {tab === 'commissions' && (
         <div className="grid grid-cols-2 gap-6">
-          {COMMISSIONS.filter(c => c.artist === 'a1').map(c => <CommissionCard key={c.id} commission={c}/>)}
+          {ownedCommissions.map(c => <CommissionCard key={c.id} commission={c} role="artist"/>)}
+          {sellerBookings.map(booking => (
+            <div key={booking.id} className="hair-all p-6 bg-[var(--card)]">
+              <div className="label">Booked slot</div>
+              <div className="display text-[24px] mt-3">{booking.commission?.title || 'Commission'}</div>
+              <div className="mono text-[11px] text-[var(--muted)] mt-2">{commissionState.stateLabel(booking.status)} · ${fmt(booking.price)}</div>
+              <p className="text-[13px] text-[var(--ink-2)] mt-4 leading-relaxed">{booking.briefText || 'No brief submitted yet.'}</p>
+              <div className="flex gap-2 mt-5">
+                <button onClick={() => onOpenCommissionThread(booking)} className="swiss-btn ghost">Open thread <ArrowRight size={12}/></button>
+                {commissionState.nextStates(booking.status).map(next => (
+                  <button key={next} onClick={() => commissionState.transitionBooking(booking.id, next)} className="swiss-btn">
+                    {commissionState.stateLabel(next)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
           <div className="hair-all p-6 bg-[var(--card)] flex flex-col items-center justify-center text-center min-h-[300px]">
             <Plus size={24} className="text-[var(--muted)]"/>
             <div className="display text-[22px] mt-4">Open new commission</div>
             <div className="text-[12px] text-[var(--muted)] mt-1 max-w-[200px]">Set price, slots, brief, and delivery window.</div>
-            <button className="swiss-btn mt-5">Create commission</button>
+            <button onClick={onOpenCommissionModal} disabled={!ownedArtist} className={`swiss-btn mt-5 ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}>Create commission</button>
           </div>
         </div>
       )}
@@ -2449,8 +3028,33 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike }) => {
 // ============================================================
 // ADMIN PANEL
 // ============================================================
-const AdminDashboard = ({ goToArtist }) => {
+const AdminDashboard = ({ goToArtist, trustState }) => {
   const [tab, setTab] = useState('overview');
+  const [actionError, setActionError] = useState(null);
+  const reports = trustState?.reports || [];
+  const openReports = reports.filter(report => report.status === 'open' || report.status === 'reviewing');
+  const highPriorityReports = openReports.filter(report => report.priority === 'high');
+  const reportTargetName = (report) => {
+    if (report.targetType === 'artwork') return artworkById(report.targetId).title || report.targetId;
+    if (report.targetType === 'artist') return artistById(report.targetId).name || report.targetId;
+    return report.targetId;
+  };
+  const reportAge = (iso) => {
+    if (!iso) return 'unknown';
+    const diff = Date.now() - new Date(iso).getTime();
+    const hours = Math.max(0, Math.floor(diff / 3600000));
+    if (hours < 1) return 'just now';
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+  };
+  const changeReportStatus = async (reportId, status, resolutionNote = '') => {
+    setActionError(null);
+    try {
+      await trustState?.updateReportStatus(reportId, status, resolutionNote);
+    } catch (err) {
+      setActionError(err.message || 'Report update failed.');
+    }
+  };
 
   return (
     <main className="fade-in max-w-[1440px] mx-auto px-8 py-10">
@@ -2472,7 +3076,7 @@ const AdminDashboard = ({ goToArtist }) => {
           {l:'GMV today',v:'$48.2K',d:'+18% vs 7d avg'},
           {l:'Live auctions',v:'240',d:'18 ending in <1h'},
           {l:'In escrow',v:'$84,910',d:'62 commissions'},
-          {l:'Open reports',v:'7',d:'2 high priority',hot:true},
+          {l:'Open reports',v:String(openReports.length),d:`${highPriorityReports.length} high priority`,hot:openReports.length > 0},
         ].map((s,i) => (
           <div key={i} className={`p-5 ${s.hot ? 'hair-all bg-[var(--accent)] text-white' : 'hair-all bg-[var(--card)]'}`}>
             <div className={`label ${s.hot ? 'text-white opacity-70' : ''}`}>{s.l}</div>
@@ -2482,12 +3086,12 @@ const AdminDashboard = ({ goToArtist }) => {
         ))}
       </div>
 
-      <div className="flex gap-2 mb-8">
+      <div className="admin-tabs flex gap-2 mb-8">
         {[
           {k:'overview',l:'Overview'},
           {k:'users',l:'Users'},
           {k:'auctions',l:'Auctions'},
-          {k:'disputes',l:'Disputes · 7'},
+          {k:'disputes',l:`Reports - ${openReports.length}`},
           {k:'finance',l:'Finance'},
           {k:'audit',l:'Audit log'},
         ].map(t => (
@@ -2569,8 +3173,12 @@ const AdminDashboard = ({ goToArtist }) => {
             </div>
             <div className="hair-all p-5 bg-[var(--accent)] text-white">
               <div className="label text-white opacity-80">Action required</div>
-              <div className="text-[15px] mt-3 leading-relaxed">2 disputes are above the 48h SLA threshold. One involves a commission worth $2,000.</div>
-              <button className="swiss-btn mt-4 bg-white text-[var(--accent)] border-white">Review disputes</button>
+              <div className="text-[15px] mt-3 leading-relaxed">
+                {openReports.length > 0
+                  ? `${openReports.length} trust reports need review. ${highPriorityReports.length} are high priority.`
+                  : 'No open trust reports are waiting in the queue.'}
+              </div>
+              <button onClick={() => setTab('disputes')} className="swiss-btn mt-4 bg-white text-[var(--accent)] border-white">Review reports</button>
             </div>
           </div>
         </div>
@@ -2668,25 +3276,54 @@ const AdminDashboard = ({ goToArtist }) => {
 
       {tab === 'disputes' && (
         <div className="space-y-4">
-          {[
-            {id:'D-0042', buyer:'thora.k', artist:'rfm.works', subject:'Commission not delivered by deadline', amount:2000, opened:'52h ago', priority:'high'},
-            {id:'D-0041', buyer:'merrick', artist:'okonkwo.studio', subject:'Files corrupted on download', amount:320, opened:'18h ago', priority:'medium'},
-            {id:'D-0040', buyer:'novak', artist:'fjeld.no', subject:'Shipping never arrived', amount:220, opened:'4d ago', priority:'high'},
-            {id:'D-0039', buyer:'studio_ng', artist:'kestner.studio', subject:'Buyer requesting refund post-delivery', amount:480, opened:'1d ago', priority:'low'},
-          ].map(d => (
-            <div key={d.id} className="hair-all bg-[var(--card)] p-5">
-              <div className="flex justify-between items-start">
+          {trustState?.loading && (
+            <div className="hair-all bg-[var(--card)] p-8 text-center">
+              <div className="display text-[24px]">Loading reports.</div>
+            </div>
+          )}
+          {(trustState?.error || actionError) && (
+            <div className="hair-all bg-[var(--accent-soft)] text-[var(--accent)] p-5 text-[13px]">
+              {actionError || trustState?.error}
+            </div>
+          )}
+          {!trustState?.loading && reports.length === 0 && (
+            <div className="hair-all bg-[var(--card)] p-10 text-center">
+              <Flag size={22} className="mx-auto text-[var(--muted)]"/>
+              <div className="display text-[28px] mt-3">No reports in queue.</div>
+              <p className="text-[14px] text-[var(--muted)] mt-2">
+                Submitted trust reports will appear here after the reports migration is active.
+              </p>
+            </div>
+          )}
+          {reports.map(report => (
+            <div key={report.id} className="hair-all bg-[var(--card)] p-5">
+              <div className="admin-report-row flex justify-between items-start gap-4">
                 <div className="flex gap-4 items-start">
-                  <span className={`mono text-[10px] uppercase tracking-[0.12em] px-2 py-1 ${d.priority==='high'?'bg-[var(--accent)] text-white':d.priority==='medium'?'bg-[#FFB200] text-[var(--ink)]':'hair-all'}`}>{d.priority}</span>
+                  <span className={`mono text-[10px] uppercase tracking-[0.12em] px-2 py-1 ${report.priority === 'high' ? 'bg-[var(--accent)] text-white' : report.priority === 'normal' ? 'bg-[#D2BE76] text-[var(--ink)]' : 'hair-all'}`}>
+                    {report.priority}
+                  </span>
                   <div>
-                    <div className="mono text-[11px] text-[var(--muted)]">{d.id} · Opened {d.opened}</div>
-                    <div className="display text-[22px] mt-1">{d.subject}</div>
-                    <div className="mono text-[11px] mt-2 text-[var(--muted)]">{d.buyer} vs. {d.artist} · ${fmt(d.amount)} in escrow</div>
+                    <div className="mono text-[11px] text-[var(--muted)]">{report.id.slice(0, 8)} - {reportAge(report.createdAt)}</div>
+                    <div className="display text-[22px] mt-1 capitalize">{report.reason.replace(/_/g, ' ')}</div>
+                    <div className="mono text-[11px] mt-2 text-[var(--muted)]">
+                      {report.targetType} - {reportTargetName(report)} - {report.status}
+                    </div>
+                    {report.details && <p className="text-[13px] mt-3 text-[var(--ink-2)] leading-relaxed">{report.details}</p>}
+                    {report.resolutionNote && (
+                      <p className="text-[12px] mt-3 text-[var(--muted)] leading-relaxed">Resolution: {report.resolutionNote}</p>
+                    )}
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <button className="swiss-btn ghost">View thread</button>
-                  <button className="swiss-btn">Resolve</button>
+                <div className="admin-report-actions flex gap-2">
+                  {report.status !== 'reviewing' && (
+                    <button onClick={() => changeReportStatus(report.id, 'reviewing')} className="swiss-btn ghost">Review</button>
+                  )}
+                  {report.status !== 'resolved' && (
+                    <button onClick={() => changeReportStatus(report.id, 'resolved', 'Resolved by admin review.')} className="swiss-btn">Resolve</button>
+                  )}
+                  {report.status !== 'dismissed' && (
+                    <button onClick={() => changeReportStatus(report.id, 'dismissed', 'Dismissed by admin review.')} className="swiss-btn ghost">Dismiss</button>
+                  )}
                 </div>
               </div>
             </div>
@@ -2826,9 +3463,9 @@ const ProfileView = ({ user, profile, role, updateProfile, marketplace, setView 
   const bidCount = Object.values(marketplace.bids || {}).reduce((total, rows) => total + rows.length, 0);
 
   const shortcuts = [
-    { show: role === 'buyer' || role === 'admin', target: 'dashboard', label: 'Buyer dashboard', desc: 'Watchlist, bids, and collecting activity.' },
-    { show: role === 'artist' || role === 'admin', target: 'studio', label: 'Artist studio', desc: 'Auctions, commissions, and payout summary.' },
-    { show: role === 'admin', target: 'admin', label: 'Admin console', desc: 'Moderation, finance, audit, and user queues.' },
+    { show: isBuyerRole(role), target: 'dashboard', label: 'Buyer dashboard', desc: 'Watchlist, bids, and collecting activity.' },
+    { show: isSellerRole(role), target: 'studio', label: 'Seller studio', desc: 'Auctions, commissions, and payout summary.' },
+    { show: isAdminRole(role), target: 'admin', label: 'Admin console', desc: 'Moderation, finance, audit, and user queues.' },
   ].filter(item => item.show);
 
   return (
@@ -2843,7 +3480,7 @@ const ProfileView = ({ user, profile, role, updateProfile, marketplace, setView 
             <h1 className="display text-[48px] mt-2 leading-[0.95]">{displayName}</h1>
             <div className="mono text-[11px] text-[var(--muted)] mt-3 break-all">{profile?.email || user?.email}</div>
             <div className="mt-5 flex flex-wrap gap-2">
-              <span className="hair-all px-2.5 py-1 mono text-[10px] uppercase tracking-[0.1em]">{role}</span>
+              <span className="hair-all px-2.5 py-1 mono text-[10px] uppercase tracking-[0.1em]">{roleLabel(role)}</span>
               <span className={`px-2.5 py-1 mono text-[10px] uppercase tracking-[0.1em] ${profile?.verified ? 'bg-[var(--good)] text-white' : 'hair-all text-[var(--muted)]'}`}>
                 {profile?.verified ? 'Verified' : 'Unverified'}
               </span>
@@ -2922,7 +3559,7 @@ const ProfileView = ({ user, profile, role, updateProfile, marketplace, setView 
               <div>
                 <label className="label mb-2 block">Account role</label>
                 <div className="hair-all px-3 py-3 mono text-[11px] uppercase tracking-[0.1em] bg-[var(--bg-2)]">
-                  {role}
+                  {roleLabel(role)}
                 </div>
               </div>
               <div className="col-span-2">
@@ -3019,9 +3656,18 @@ const CatalogueErrorState = ({ error }) => (
 export default function App() {
   const { isAuthenticated, loading: authLoading, user, profile, role, signOut, updateProfile } = useAuth();
   const marketplace = useMarketplace();
+  const ownedArtist = marketplace.artists.find(artist => artist.profileId === user?.id) || null;
+  const commissionState = useCommissions(ownedArtist?.id || null);
+  const trustState = useTrustSafety();
   const [view, setView] = useState(() => viewFromHash());
   const [selectedArtwork, setSelectedArtwork] = useState(null);
   const [selectedArtist, setSelectedArtist] = useState(null);
+  const [bookingCommission, setBookingCommission] = useState(null);
+  const [threadBooking, setThreadBooking] = useState(null);
+  const [sendingThreadMessage, setSendingThreadMessage] = useState(false);
+  const [sellerArtworkOpen, setSellerArtworkOpen] = useState(false);
+  const [sellerCommissionOpen, setSellerCommissionOpen] = useState(false);
+  const [reportTarget, setReportTarget] = useState(null);
   const { unreadCount: notifCount } = useNotifications();
   const [query, setQuery] = useState('');
   const [toast, setToast] = useState(null);
@@ -3074,32 +3720,149 @@ export default function App() {
   const goToArtwork = (id) => { setSelectedArtwork(id); navigateToView('artwork'); };
   const goToArtist = (id) => { setSelectedArtist(id); navigateToView('artist'); };
 
+  const showToast = (message, delay = 2400) => {
+    setToast(message);
+    setTimeout(() => setToast(null), delay);
+  };
+
+  const requireBuyerAccount = () => {
+    if (isBuyerRole(role)) return true;
+    showToast('Use a buyer account for collecting actions.');
+    return false;
+  };
+
+  const requireSellerAccount = () => {
+    if (isSellerRole(role)) return true;
+    showToast('Use a seller account for studio actions.');
+    return false;
+  };
+
   const toggleLike = async (id) => {
+    if (!requireBuyerAccount()) return;
     await marketplace.toggleLike(id);
   };
 
   const toggleWatch = async (id) => {
+    if (!requireBuyerAccount()) return;
     const work = artworkById(id);
     const isNowWatching = await marketplace.toggleWatch(id);
-    setToast(isNowWatching ? `Watching ${work.title}` : `Removed ${work.title} from watchlist`);
-    setTimeout(() => setToast(null), 2400);
+    showToast(isNowWatching ? `Watching ${work.title}` : `Removed ${work.title} from watchlist`);
   };
 
   const toggleFollow = async (id) => {
+    if (!requireBuyerAccount()) return;
     const isNowFollowing = await marketplace.toggleFollow(id);
-    setToast(isNowFollowing ? `Following ${artistById(id).name}` : `Unfollowed ${artistById(id).name}`);
-    setTimeout(() => setToast(null), 2400);
+    showToast(isNowFollowing ? `Following ${artistById(id).name}` : `Unfollowed ${artistById(id).name}`);
   };
 
   const placeBid = async (workId, amount) => {
+    if (!requireBuyerAccount()) return { error: 'Use a buyer account to bid.' };
     const result = await marketplace.placeBid(workId, amount);
     if (result?.error) {
-      setToast(result.error);
+      showToast(result.error, 2800);
     } else {
       const w = artworkById(workId);
-      setToast(`Bid of $${fmt(amount)} placed on ${w.title}`);
+      showToast(`Bid of $${fmt(amount)} placed on ${w.title}`, 2800);
     }
-    setTimeout(() => setToast(null), 2800);
+  };
+
+  const openCommissionBooking = (commission) => {
+    if (!isBuyerRole(role)) {
+      showToast('Use a buyer account to book commission slots.');
+      return;
+    }
+    if (commission.taken >= commission.slots) {
+      showToast('This commission board is full.');
+      return;
+    }
+    setBookingCommission(commission);
+  };
+
+  const confirmCommissionBooking = async (briefText) => {
+    if (!bookingCommission) return;
+    const result = await commissionState.bookCommission(bookingCommission, briefText);
+    if (result?.error) {
+      showToast(result.error, 3000);
+      return;
+    }
+    setBookingCommission(null);
+    showToast('Commission slot booked.');
+    await marketplace.refreshCommissions();
+  };
+
+  const openCommissionThread = async (booking) => {
+    setThreadBooking(booking);
+    await commissionState.openThread(booking.id);
+  };
+
+  const closeCommissionThread = () => {
+    setThreadBooking(null);
+    commissionState.closeThread();
+  };
+
+  const sendThreadMessage = async (body) => {
+    setSendingThreadMessage(true);
+    const result = await commissionState.sendMessage(body);
+    setSendingThreadMessage(false);
+    if (result?.error) showToast(result.error, 3000);
+    return result;
+  };
+
+  const openReport = (target) => {
+    setReportTarget(target);
+  };
+
+  const submitReport = async (payload) => {
+    try {
+      await trustState.submitReport(payload);
+      setReportTarget(null);
+      showToast('Report submitted to trust and safety.');
+      return true;
+    } catch (err) {
+      showToast(err.message || 'Report submission failed.', 3600);
+      return false;
+    }
+  };
+
+  const handleCreateSellerArtist = async (payload) => {
+    if (!requireSellerAccount()) return false;
+    try {
+      await createSellerArtist(payload);
+      await marketplace.refreshCatalogue();
+      showToast('Seller studio created.');
+      return true;
+    } catch (err) {
+      showToast(err.message || 'Seller studio creation failed.', 3600);
+      return false;
+    }
+  };
+
+  const handleCreateSellerArtwork = async (payload) => {
+    if (!requireSellerAccount()) return false;
+    try {
+      await createSellerArtwork(payload);
+      await marketplace.refreshCatalogue();
+      setSellerArtworkOpen(false);
+      showToast('Artwork listed.');
+      return true;
+    } catch (err) {
+      showToast(err.message || 'Artwork listing failed.', 3600);
+      return false;
+    }
+  };
+
+  const handleCreateSellerCommission = async (payload) => {
+    if (!requireSellerAccount()) return false;
+    try {
+      await createSellerCommission(payload);
+      await marketplace.refreshCatalogue();
+      setSellerCommissionOpen(false);
+      showToast('Commission board opened.');
+      return true;
+    } catch (err) {
+      showToast(err.message || 'Commission creation failed.', 3600);
+      return false;
+    }
   };
 
   const handleSignOut = async () => {
@@ -3107,8 +3870,7 @@ export default function App() {
       await signOut();
       navigateToView('home');
     } catch (err) {
-      setToast('Sign out failed: ' + err.message);
-      setTimeout(() => setToast(null), 2400);
+      showToast('Sign out failed: ' + err.message);
     }
   };
 
@@ -3141,9 +3903,9 @@ export default function App() {
   }
 
   // --- Role-gated dashboard access ---
-  const canViewDashboard = role === 'buyer' || role === 'admin';
-  const canViewStudio = role === 'artist' || role === 'admin';
-  const canViewAdmin = role === 'admin';
+  const canViewDashboard = isBuyerRole(role);
+  const canViewStudio = isSellerRole(role);
+  const canViewAdmin = isAdminRole(role);
 
   return (
     <div className="swiss-app min-h-screen">
@@ -3156,17 +3918,48 @@ export default function App() {
       ) : (
         <>
           {view === 'home' && <HomeView goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} query={query}/>}
-          {view === 'artwork' && selectedArtwork && <ArtworkView workId={selectedArtwork} goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} bids={bids} placeBid={placeBid}/>}
-          {view === 'artist' && selectedArtist && <ArtistView artistId={selectedArtist} goToArtwork={goToArtwork} follows={follows} toggleFollow={toggleFollow} likes={likes} toggleLike={toggleLike}/>}
-          {view === 'commissions' && <CommissionsView goToArtist={goToArtist}/>}
+          {view === 'artwork' && selectedArtwork && <ArtworkView workId={selectedArtwork} goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} bids={bids} placeBid={placeBid} onReport={openReport}/>}
+          {view === 'artist' && selectedArtist && <ArtistView artistId={selectedArtist} goToArtwork={goToArtwork} follows={follows} toggleFollow={toggleFollow} likes={likes} toggleLike={toggleLike} onReport={openReport}/>}
+          {view === 'commissions' && <CommissionsView goToArtist={goToArtist} role={role} onBookCommission={openCommissionBooking}/>}
           {view === 'feed' && <FeedView goToArtwork={goToArtwork} goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow} likes={likes} toggleLike={toggleLike}/>}
           {view === 'artists' && <ArtistsView goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow}/>}
           {view === 'profile' && <ProfileView user={user} profile={profile} role={role} updateProfile={updateProfile} marketplace={marketplace} setView={navigateToView}/>}
-          {view === 'dashboard' && canViewDashboard && <BuyerDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} bids={bids} watchlist={watchlist} toggleWatch={toggleWatch}/>}
-          {view === 'studio' && canViewStudio && <StudioDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike}/>}
-          {view === 'admin' && canViewAdmin && <AdminDashboard goToArtist={goToArtist}/>}
+          {view === 'dashboard' && canViewDashboard && <BuyerDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} bids={bids} watchlist={watchlist} toggleWatch={toggleWatch} profile={profile} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} setView={navigateToView}/>}
+          {view === 'studio' && canViewStudio && <StudioDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} profile={profile} ownedArtist={ownedArtist} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} onCreateArtist={handleCreateSellerArtist} onOpenArtworkModal={() => setSellerArtworkOpen(true)} onOpenCommissionModal={() => setSellerCommissionOpen(true)}/>}
+          {view === 'admin' && canViewAdmin && <AdminDashboard goToArtist={goToArtist} trustState={trustState}/>}
         </>
       )}
+
+      <CommissionBookingModal
+        commission={bookingCommission}
+        role={role}
+        onClose={() => setBookingCommission(null)}
+        onConfirm={confirmCommissionBooking}
+        getPriceBreakdown={commissionState.getPriceBreakdown}
+      />
+      <CommissionThreadModal
+        booking={threadBooking}
+        activeThread={commissionState.activeThread}
+        user={user}
+        onClose={closeCommissionThread}
+        onSend={sendThreadMessage}
+        sending={sendingThreadMessage}
+      />
+      <SellerArtworkModal
+        open={sellerArtworkOpen}
+        onClose={() => setSellerArtworkOpen(false)}
+        onSubmit={handleCreateSellerArtwork}
+      />
+      <SellerCommissionModal
+        open={sellerCommissionOpen}
+        onClose={() => setSellerCommissionOpen(false)}
+        onSubmit={handleCreateSellerCommission}
+      />
+      <ReportModal
+        target={reportTarget}
+        onClose={() => setReportTarget(null)}
+        onSubmit={submitReport}
+      />
 
       {/* Access denied fallback for role-gated views */}
       {((view === 'dashboard' && !canViewDashboard) || (view === 'studio' && !canViewStudio) || (view === 'admin' && !canViewAdmin)) && (
@@ -3175,7 +3968,7 @@ export default function App() {
             <Shield size={32} className="mx-auto text-[var(--muted)]"/>
             <div className="display text-[32px] mt-6">Access restricted.</div>
             <p className="text-[14px] text-[var(--muted)] mt-3 leading-relaxed">
-              Your account role ({role}) doesn't have access to this section.
+              Your account role ({roleLabel(role)}) doesn't have access to this section.
             </p>
             <button onClick={() => navigateToView('home')} className="swiss-btn mt-8 mx-auto">
               Back to marketplace <ArrowRight size={12}/>

@@ -233,12 +233,13 @@ export function AuthProvider({ children }) {
   // ------------------------------------------------------------------
   // Derived
   // ------------------------------------------------------------------
-  const role = profile?.role || 'buyer';
+  const effectiveProfile = profile || (user ? profilePayloadFromUser(user) : null);
+  const role = effectiveProfile?.role || 'buyer';
   const isAuthenticated = !!user;  // profile may be null if trigger didn't fire yet
 
   const value = {
     user,
-    profile,
+    profile: effectiveProfile,
     role,
     loading,
     isAuthenticated,

@@ -268,6 +268,42 @@ export function useMarketplace() {
     }
   }, []);
 
+  const refreshCommissions = useCallback(async () => {
+    try {
+      const commissionsData = await withTimeout(fetchCommissions(), 'Commissions refresh', 10000);
+      setCommissions(commissionsData);
+      return commissionsData;
+    } catch (err) {
+      console.error('Failed to refresh commissions:', err);
+      return null;
+    }
+  }, []);
+
+  const refreshCatalogue = useCallback(async () => {
+    try {
+      const [
+        artistsData,
+        artworksData,
+        commissionsData,
+        feedData,
+      ] = await withTimeout(Promise.all([
+        fetchArtists(),
+        fetchArtworks(),
+        fetchCommissions(),
+        fetchFeedPosts(),
+      ]), 'Catalogue refresh', 15000);
+
+      setArtists(artistsData);
+      setArtworks(artworksData);
+      setCommissions(commissionsData);
+      setFeedPosts(feedData);
+      return { artists: artistsData, artworks: artworksData, commissions: commissionsData, feedPosts: feedData };
+    } catch (err) {
+      console.error('Failed to refresh catalogue:', err);
+      return null;
+    }
+  }, []);
+
   return {
     // Catalogue data
     artists,
@@ -291,6 +327,8 @@ export function useMarketplace() {
     toggleWatch: handleToggleWatch,
     placeBid: handlePlaceBid,
     loadBidsForArtwork,
+    refreshCommissions,
+    refreshCatalogue,
 
     // Status
     loading,

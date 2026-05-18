@@ -1,6 +1,30 @@
 import { supabase } from './supabase';
 import { COMMISSION_STATES, canTransition, commissionPlatformFee, commissionArtistPayout } from './domain';
 
+async function devApi(path, options = {}) {
+  if (!import.meta.env.DEV) return null;
+
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error('Authentication is required.');
+
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload.error || 'Commission request failed.');
+  }
+
+  return payload.data;
+}
+
 // ============================================================
 // COMMISSIONS SERVICE — Booking & lifecycle management
 // ============================================================
@@ -13,6 +37,22 @@ export async function bookCommission(userId, commission, briefText = '') {
   // Validate slot availability
   if (commission.taken >= commission.slots) {
     return { error: 'No slots available' };
+  }
+
+  try {
+    const apiData = await devApi('/api/commission-bookings', {
+      method: 'POST',
+      body: JSON.stringify({
+        commissionId: commission.id,
+        artistId: commission.artist,
+        briefText,
+        price: commission.price,
+      }),
+    });
+    if (apiData) return { data: transformBooking(apiData) };
+  } catch (error) {
+    console.error('Failed to book commission:', error);
+    return { error: error.message };
   }
 
   const { data, error } = await supabase
@@ -40,6 +80,9 @@ export async function bookCommission(userId, commission, briefText = '') {
  * Fetch all bookings for a user (as buyer).
  */
 export async function fetchBuyerBookings(userId) {
+  const apiData = await devApi('/api/commission-bookings?scope=buyer');
+  if (apiData) return (apiData || []).map(transformBooking);
+
   const { data, error } = await supabase
     .from('commission_bookings')
     .select('*, commissions(*), artists(*)')
@@ -54,6 +97,9 @@ export async function fetchBuyerBookings(userId) {
  * Fetch all bookings for an artist.
  */
 export async function fetchArtistBookings(artistId) {
+  const apiData = await devApi(`/api/commission-bookings?scope=artist&artistId=${encodeURIComponent(artistId)}`);
+  if (apiData) return (apiData || []).map(transformBooking);
+
   const { data, error } = await supabase
     .from('commission_bookings')
     .select('*, commissions(*)')
@@ -68,6 +114,16 @@ export async function fetchArtistBookings(artistId) {
  * Transition a booking to a new state.
  */
 export async function transitionBooking(bookingId, newStatus) {
+  try {
+    const apiData = await devApi('/api/commission-bookings', {
+      method: 'PATCH',
+      body: JSON.stringify({ bookingId, status: newStatus }),
+    });
+    if (apiData) return { data: transformBooking(apiData) };
+  } catch (error) {
+    return { error: error.message };
+  }
+
   // Get current state
   const { data: current, error: fetchErr } = await supabase
     .from('commission_bookings')
@@ -96,6 +152,9 @@ export async function transitionBooking(bookingId, newStatus) {
  * Fetch messages in a commission thread.
  */
 export async function fetchCommissionMessages(bookingId) {
+  const apiData = await devApi(`/api/commission-messages?bookingId=${encodeURIComponent(bookingId)}`);
+  if (apiData) return (apiData || []).map(transformMessage);
+
   const { data, error } = await supabase
     .from('commission_messages')
     .select('*')
@@ -103,20 +162,23 @@ export async function fetchCommissionMessages(bookingId) {
     .order('created_at', { ascending: true });
 
   if (error) throw error;
-  return (data || []).map(msg => ({
-    id: msg.id,
-    senderId: msg.sender_id,
-    body: msg.body,
-    isMilestone: msg.is_milestone,
-    attachmentUrl: msg.attachment_url,
-    createdAt: msg.created_at,
-  }));
+  return (data || []).map(transformMessage);
 }
 
 /**
  * Send a message in a commission thread.
  */
 export async function sendCommissionMessage(bookingId, userId, body, isMilestone = false) {
+  try {
+    const apiData = await devApi('/api/commission-messages', {
+      method: 'POST',
+      body: JSON.stringify({ bookingId, body, isMilestone }),
+    });
+    if (apiData) return { data: transformMessage(apiData) };
+  } catch (error) {
+    return { error: error.message };
+  }
+
   const { data, error } = await supabase
     .from('commission_messages')
     .insert({
@@ -130,13 +192,7 @@ export async function sendCommissionMessage(bookingId, userId, body, isMilestone
 
   if (error) return { error: error.message };
   return {
-    data: {
-      id: data.id,
-      senderId: data.sender_id,
-      body: data.body,
-      isMilestone: data.is_milestone,
-      createdAt: data.created_at,
-    }
+    data: transformMessage(data)
   };
 }
 
@@ -175,5 +231,16 @@ function transformBooking(row) {
       name: row.artists.name,
       handle: row.artists.handle,
     } : null,
+  };
+}
+
+function transformMessage(row) {
+  return {
+    id: row.id,
+    senderId: row.sender_id,
+    body: row.body,
+    isMilestone: row.is_milestone,
+    attachmentUrl: row.attachment_url,
+    createdAt: row.created_at,
   };
 }

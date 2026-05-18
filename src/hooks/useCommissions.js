@@ -14,8 +14,18 @@ import { COMMISSION_STATES, nextStates, stateLabel, stateColor, isTerminalState 
 // ============================================================
 // useCommissions — Commission booking & lifecycle management
 // ============================================================
-export function useCommissions() {
-  const { user, profile, role } = useAuth();
+const COMMISSION_LOAD_TIMEOUT_MS = 10000;
+
+function withTimeout(promise, label, ms = COMMISSION_LOAD_TIMEOUT_MS) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out.`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
+export function useCommissions(artistId = null) {
+  const { user, role } = useAuth();
   const userId = user?.id;
 
   const [buyerBookings, setBuyerBookings] = useState([]);
@@ -31,16 +41,15 @@ export function useCommissions() {
     async function loadBookings() {
       setLoading(true);
       try {
-        const bookings = await fetchBuyerBookings(userId);
+        const bookings = role === 'buyer'
+          ? await withTimeout(fetchBuyerBookings(userId), 'Buyer commission load')
+          : [];
         setBuyerBookings(bookings);
 
-        // If user is an artist, also load artist-side bookings
-        if (role === 'artist' || role === 'admin') {
-          // For now, use a1 as the artist ID mapping
-          // In production, this would come from the artist profile linked to the user
-          const artistBookings = await fetchArtistBookings(profile?.artist_id || 'a1');
-          setArtistBookings(artistBookings);
-        }
+        const sellerBookings = role === 'artist' && artistId
+          ? await withTimeout(fetchArtistBookings(artistId), 'Seller commission load')
+          : [];
+        setArtistBookings(sellerBookings);
       } catch (err) {
         console.error('Failed to load bookings:', err);
         setError(err.message);
@@ -50,11 +59,12 @@ export function useCommissions() {
     }
 
     loadBookings();
-  }, [userId, role, profile]);
+  }, [userId, role, artistId]);
 
   // Book a commission
   const handleBookCommission = useCallback(async (commission, briefText = '') => {
     if (!userId) return { error: 'Not authenticated' };
+    if (role !== 'buyer') return { error: 'Use a buyer account to book commissions.' };
 
     const result = await bookCommission(userId, commission, briefText);
     if (result.error) return result;
@@ -62,10 +72,12 @@ export function useCommissions() {
     // Add to local state optimistically
     setBuyerBookings(prev => [result.data, ...prev]);
     return result;
-  }, [userId]);
+  }, [userId, role]);
 
   // Transition a booking state
   const handleTransitionBooking = useCallback(async (bookingId, newStatus) => {
+    if (role !== 'artist') return { error: 'Use a seller account to update commission status.' };
+
     const result = await transitionBooking(bookingId, newStatus);
     if (result.error) return result;
 
