@@ -300,6 +300,7 @@ function formaCatalogueApi() {
               tags: parseTags(body.tags),
               like_count: 0,
               format: String(body.format || 'PNG / source').trim().slice(0, 80),
+              image_url: String(body.imageUrl || '').trim() || null,
             })
             .select()
             .single();
@@ -449,6 +450,11 @@ function formaCatalogueApi() {
 
             if (new Date(artwork.ends_at).getTime() <= Date.now()) {
               sendJson(res, 409, { error: 'Auction has ended.' });
+              return;
+            }
+
+            if (artwork.authenticity_status === 'restricted') {
+              sendJson(res, 409, { error: 'Bidding is paused until the artist submits process proof.' });
               return;
             }
 

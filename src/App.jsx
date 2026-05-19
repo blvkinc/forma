@@ -5,7 +5,7 @@ import {
   TrendingUp, Users, DollarSign, AlertCircle, Check, X, Menu,
   Image as ImageIcon, Briefcase, Activity, Shield, ChevronRight,
   ChevronDown, Filter, Grid3x3, Rows3, Bookmark, MoreHorizontal,
-  Calendar, Tag, MapPin, Hash, Send, Copy, Flag, Sparkles, LogOut
+  Calendar, Tag, MapPin, Hash, Send, Copy, Flag, Sparkles, LogOut, Upload
 } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import AuthPage from './pages/AuthPage';
@@ -13,7 +13,8 @@ import ART_VISUALS from './data/visuals';
 import { useMarketplace } from './hooks/useMarketplace';
 import { useCommissions } from './hooks/useCommissions';
 import { useTrustSafety } from './hooks/useTrustSafety';
-import { createSellerArtist, createSellerArtwork, createSellerCommission } from './lib/seller';
+import { createSellerArtist, createSellerArtwork, createSellerCommission, uploadArtworkImage } from './lib/seller';
+import { fetchArtworkAuthenticity, removeAiVote, submitAiVote, submitArtworkProof } from './lib/authenticity';
 import {
   minimumBidIncrement, minimumNextBid, auctionBuyerPremium,
   auctionTotalCost, auctionUrgency, shouldExtendAuction, FEE_TIERS
@@ -812,6 +813,16 @@ const REPORT_REASONS = [
   { id: 'other', label: 'Other' },
 ];
 
+const AUTHENTICITY_COPY = {
+  clear: { label: 'Community clear', tone: 'neutral', body: 'No AI-authenticity flags are active on this listing.' },
+  under_review: { label: 'Community review', tone: 'warn', body: 'Community members requested process proof from the artist.' },
+  restricted: { label: 'Bidding paused', tone: 'danger', body: 'AI review threshold reached. The artist must submit process proof to restore bidding.' },
+  proof_pending: { label: 'Proof submitted', tone: 'proof', body: 'The artist submitted process proof. The listing is restored while evidence is reviewed.' },
+  verified: { label: 'Proof verified', tone: 'good', body: 'Process proof has been accepted for this listing.' },
+};
+
+const authenticityMeta = (status = 'clear') => AUTHENTICITY_COPY[status] || AUTHENTICITY_COPY.clear;
+
 const PRICE_BANDS = [
   { id: 'all', label: 'All prices', match: () => true },
   { id: 'under250', label: 'Under $250', match: (work) => work.currentBid < 250 },
@@ -821,6 +832,7 @@ const PRICE_BANDS = [
 
 const APP_VIEWS = new Set([
   'home',
+  'explore',
   'artwork',
   'artist',
   'commissions',
@@ -871,7 +883,8 @@ const Header = ({ view, setView, role, notif, query, setQuery, profile, onSignOu
       <div className="flex items-center gap-10">
         <Logo onClick={() => setView('home')}/>
         <nav className="flex items-center gap-6 mono text-[11px] uppercase tracking-[0.12em]">
-          <a onClick={() => setView('home')} className={`cursor-pointer underline-hover ${view==='home' ? 'text-[var(--ink)]' : 'text-[var(--muted)]'}`}>Market</a>
+          <a onClick={() => setView('home')} className={`cursor-pointer underline-hover ${view==='home' ? 'text-[var(--ink)]' : 'text-[var(--muted)]'}`}>Home</a>
+          <a onClick={() => setView('explore')} className={`cursor-pointer underline-hover ${view==='explore' ? 'text-[var(--ink)]' : 'text-[var(--muted)]'}`}>Explore</a>
           <a onClick={() => setView('commissions')} className={`cursor-pointer underline-hover ${view==='commissions' ? 'text-[var(--ink)]' : 'text-[var(--muted)]'}`}>Commissions</a>
           <a onClick={() => setView('feed')} className={`cursor-pointer underline-hover ${view==='feed' ? 'text-[var(--ink)]' : 'text-[var(--muted)]'}`}>Feed</a>
           <a onClick={() => setView('artists')} className={`cursor-pointer underline-hover ${view==='artists' ? 'text-[var(--ink)]' : 'text-[var(--muted)]'}`}>Artists</a>
@@ -886,7 +899,10 @@ const Header = ({ view, setView, role, notif, query, setQuery, profile, onSignOu
             value={query}
             onChange={e => {
               setQuery(e.target.value);
-              if (e.target.value.trim()) setView('home');
+              if (e.target.value.trim()) setView('explore');
+            }}
+            onFocus={() => {
+              if (query.trim()) setView('explore');
             }}
             placeholder="Search artists, works, tags…"
             aria-label="Search artists, works, and tags"
@@ -1001,9 +1017,18 @@ const RoleSwitcher = ({ role, setView }) => {
   );
 };
 
-const ArtVisual = ({ visual, className = '' }) => (
+const ArtVisual = ({ visual, imageUrl = '', alt = 'Artwork preview', className = '' }) => (
   <div className={`relative overflow-hidden ${className}`} style={{ aspectRatio: '1/1' }}>
-    {ART_VISUALS[visual]}
+    {imageUrl ? (
+      <img
+        src={imageUrl}
+        alt={alt}
+        className="absolute inset-0 w-full h-full object-cover"
+        loading="lazy"
+      />
+    ) : (
+      ART_VISUALS[visual]
+    )}
   </div>
 );
 
@@ -1012,6 +1037,8 @@ const ArtCard = ({ work, onClick, likes, toggleLike, watchlist = {}, toggleWatch
   const isHot = work.endsAt < 1000*60*60*3;
   const liked = likes[work.id];
   const watched = watchlist[work.id];
+  const authenticity = authenticityMeta(work.authenticityStatus);
+  const showAuthenticity = work.authenticityStatus && work.authenticityStatus !== 'clear';
   const [timeLeft, setTimeLeft] = useState(work.endsAt);
   useEffect(() => {
     const i = setInterval(() => setTimeLeft(t => Math.max(0, t - 1000)), 1000);
@@ -1022,11 +1049,14 @@ const ArtCard = ({ work, onClick, likes, toggleLike, watchlist = {}, toggleWatch
     return (
       <div onClick={onClick} className="art-card cursor-pointer group flex items-center hair-b py-5 gap-6">
         <div className="w-[120px] flex-shrink-0 hair-all">
-          <ArtVisual visual={work.visual}/>
+          <ArtVisual visual={work.visual} imageUrl={work.imageUrl} alt={work.title}/>
         </div>
         <div className="flex-1 grid grid-cols-12 gap-4 items-center">
           <div className="col-span-4">
             <div className="display text-[20px]">{work.title}</div>
+            {showAuthenticity && (
+              <div className="mono text-[9px] text-[var(--accent)] uppercase tracking-[0.12em] mt-1">{authenticity.label}</div>
+            )}
             <div className="mono text-[11px] text-[var(--muted)] mt-1">{artist.handle} · {work.year}</div>
           </div>
           <div className="col-span-2 label">{work.edition}</div>
@@ -1059,11 +1089,16 @@ const ArtCard = ({ work, onClick, likes, toggleLike, watchlist = {}, toggleWatch
   return (
     <div onClick={onClick} className="art-card cursor-pointer group">
       <div className="hair-all relative overflow-hidden">
-        <ArtVisual visual={work.visual}/>
+        <ArtVisual visual={work.visual} imageUrl={work.imageUrl} alt={work.title}/>
         {isHot && (
           <div className="absolute top-2 left-2 bg-[var(--accent)] text-white px-2 py-0.5 mono text-[9px] tracking-[0.15em]">
             <span className="blink inline-block w-1.5 h-1.5 bg-white rounded-full mr-1.5 align-middle"/>
             ENDING SOON
+          </div>
+        )}
+        {showAuthenticity && (
+          <div className={`absolute bottom-2 left-2 px-2 py-0.5 mono text-[9px] tracking-[0.12em] ${work.authenticityStatus === 'restricted' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg)] hair-all text-[var(--ink)]'}`}>
+            {authenticity.label}
           </div>
         )}
         <button
@@ -1155,7 +1190,124 @@ const Footer = () => (
 // ============================================================
 // HOMEPAGE — Marketplace
 // ============================================================
-const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist, toggleWatch, query }) => {
+const ExploreView = ({ goToArtwork, likes, toggleLike, watchlist, toggleWatch, query }) => {
+  const [sort, setSort] = useState('ending');
+  const [tag, setTag] = useState('all');
+  const [edition, setEdition] = useState('all');
+  const [priceBand, setPriceBand] = useState('all');
+  const [authFilter, setAuthFilter] = useState('all');
+  const [layout, setLayout] = useState('grid');
+  const searchTerm = normalizeText(query);
+  const priceFilter = PRICE_BANDS.find(b => b.id === priceBand) || PRICE_BANDS[0];
+  const authenticityFilters = [
+    { id: 'all', label: 'All authenticity', match: () => true },
+    { id: 'clear', label: 'Clear', match: (work) => !work.authenticityStatus || work.authenticityStatus === 'clear' },
+    { id: 'verified', label: 'Proof verified', match: (work) => work.authenticityStatus === 'verified' },
+    { id: 'review', label: 'Community review', match: (work) => ['under_review', 'restricted', 'proof_pending'].includes(work.authenticityStatus) },
+  ];
+  const authenticityFilter = authenticityFilters.find(filter => filter.id === authFilter) || authenticityFilters[0];
+  const filteredWorks = ARTWORKS
+    .filter(work => {
+      const artist = artistById(work.artist);
+      const searchable = normalizeText([
+        work.title,
+        work.tags.join(' '),
+        work.format,
+        artist?.name,
+        artist?.handle,
+        artist?.city,
+      ].join(' '));
+
+      const matchesSearch = !searchTerm || searchable.includes(searchTerm);
+      const matchesTag = tag === 'all' || work.tags.includes(tag);
+      const matchesEdition = edition === 'all' || (edition === 'one' ? work.edition === '1/1' : work.edition !== '1/1');
+      const matchesPrice = priceFilter.match(work);
+      const matchesAuthenticity = authenticityFilter.match(work);
+
+      return matchesSearch && matchesTag && matchesEdition && matchesPrice && matchesAuthenticity;
+    })
+    .sort((a,b) => {
+      if (sort === 'new') return b.year - a.year || a.endsAt - b.endsAt;
+      if (sort === 'priceHigh') return b.currentBid - a.currentBid;
+      if (sort === 'priceLow') return a.currentBid - b.currentBid;
+      if (sort === 'watched') return b.watchers - a.watchers;
+      return a.endsAt - b.endsAt;
+    });
+
+  return (
+    <main className="fade-in max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+      <section className="hair-b pb-6 mb-8 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+        <div>
+          <div className="label mb-3">No. EXPLORE - Live index</div>
+          <h1 className="display text-[48px] sm:text-[72px] leading-[0.9]">Explore the market.</h1>
+          <p className="text-[15px] text-[var(--muted)] mt-4 max-w-[620px] leading-relaxed">
+            Search live artworks, tags, artists, price ranges, editions, and community authenticity states.
+          </p>
+        </div>
+        <div className="hair-all bg-[var(--card)] p-4 min-w-[260px]">
+          <div className="label">Matched listings</div>
+          <div className="mono text-[32px] mt-1">{filteredWorks.length}</div>
+          <div className="text-[12px] text-[var(--muted)] mt-1">{searchTerm ? `Search: ${query}` : 'No search term active'}</div>
+        </div>
+      </section>
+
+      <section className="mb-8">
+        <div className="flex flex-wrap items-center gap-2">
+          {[{k:'ending',l:'Ending soon'},{k:'new',l:'Newest'},{k:'priceHigh',l:'Highest bid'},{k:'priceLow',l:'Lowest bid'},{k:'watched',l:'Most watched'}].map(f => (
+            <button key={f.k} onClick={() => setSort(f.k)} className={`tab-pill ${sort === f.k ? 'active' : ''}`}>{f.l}</button>
+          ))}
+          <select value={tag} onChange={e => setTag(e.target.value)} aria-label="Filter auctions by tag" className="tab-pill bg-transparent">
+            {getTagOptions().map(t => <option key={t} value={t}>{t === 'all' ? 'All tags' : t}</option>)}
+          </select>
+          <select value={edition} onChange={e => setEdition(e.target.value)} aria-label="Filter auctions by edition type" className="tab-pill bg-transparent">
+            <option value="all">All editions</option>
+            <option value="one">1/1 only</option>
+            <option value="multi">Multi-edition</option>
+          </select>
+          <select value={priceBand} onChange={e => setPriceBand(e.target.value)} aria-label="Filter auctions by price" className="tab-pill bg-transparent">
+            {PRICE_BANDS.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
+          </select>
+          <select value={authFilter} onChange={e => setAuthFilter(e.target.value)} aria-label="Filter auctions by authenticity status" className="tab-pill bg-transparent">
+            {authenticityFilters.map(filter => <option key={filter.id} value={filter.id}>{filter.label}</option>)}
+          </select>
+          <div className="hair-l h-6 mx-2 hidden sm:block"/>
+          <button onClick={() => setLayout('grid')} className={`hair-all p-2 ${layout==='grid' ? 'bg-[var(--ink)] text-[var(--bg)]' : ''}`} aria-label="Grid layout"><Grid3x3 size={14}/></button>
+          <button onClick={() => setLayout('row')} className={`hair-all p-2 ${layout==='row' ? 'bg-[var(--ink)] text-[var(--bg)]' : ''}`} aria-label="Row layout"><Rows3 size={14}/></button>
+        </div>
+      </section>
+
+      <div className="mb-5 flex justify-between items-center mono text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">
+        <span>{filteredWorks.length} live {filteredWorks.length === 1 ? 'auction' : 'auctions'} matched</span>
+        {searchTerm && <button onClick={() => document.getElementById('global-search')?.focus()} className="underline-hover">Edit search</button>}
+      </div>
+
+      {layout === 'grid' ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+          {filteredWorks.map(w => (
+            <ArtCard key={w.id} work={w} onClick={() => goToArtwork(w.id)} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch}/>
+          ))}
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <div className="min-w-[760px]">
+            {filteredWorks.map(w => (
+              <ArtCard key={w.id} work={w} onClick={() => goToArtwork(w.id)} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} layout="row"/>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {filteredWorks.length === 0 && (
+        <div className="hair-all p-10 text-center bg-[var(--card)]">
+          <div className="display text-[28px]">No auctions matched.</div>
+          <p className="text-[14px] text-[var(--muted)] mt-2">Widen the filters or try another artist, tag, or artwork title.</p>
+        </div>
+      )}
+    </main>
+  );
+};
+
+const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist, toggleWatch, goExplore, query = '' }) => {
   const [sort, setSort] = useState('ending');
   const [tag, setTag] = useState('all');
   const [edition, setEdition] = useState('all');
@@ -1189,7 +1341,6 @@ const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist, toggl
       if (sort === 'watched') return b.watchers - a.watchers;
       return a.endsAt - b.endsAt;
     });
-
   return (
     <main className="fade-in">
       {/* HERO */}
@@ -1231,7 +1382,7 @@ const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist, toggl
                   <div className="mono text-[20px]">$<span>284K</span></div>
                 </div>
               </div>
-              <button onClick={() => document.getElementById('grid-section')?.scrollIntoView({behavior:'smooth'})} className="swiss-btn mt-6 w-full justify-center">
+              <button onClick={goExplore} className="swiss-btn mt-6 w-full justify-center">
                 Browse the index <ArrowRight size={12}/>
               </button>
             </div>
@@ -1248,7 +1399,7 @@ const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist, toggl
             <span className="label">№ 02 — Featured</span>
             <h2 className="display text-[42px]">Editor's pick, this week</h2>
           </div>
-          <a className="mono text-[11px] uppercase tracking-[0.12em] underline-hover cursor-pointer">View all selections →</a>
+          <button onClick={goExplore} className="mono text-[11px] uppercase tracking-[0.12em] underline-hover cursor-pointer">View all selections</button>
         </div>
 
         <div className="grid grid-cols-12 gap-6">
@@ -1300,7 +1451,7 @@ const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist, toggl
       </section>
 
       {/* GRID OF ALL WORKS */}
-      <section id="grid-section" className="max-w-[1440px] mx-auto px-8 py-16">
+      <section id="grid-section" className="hidden">
         <div className="flex items-end justify-between mb-8 hair-b pb-4">
           <div>
             <div className="label mb-2">№ 03 — Index</div>
@@ -1351,6 +1502,32 @@ const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist, toggl
             <p className="text-[14px] text-[var(--muted)] mt-2">Widen the filters or try another artist, tag, or artwork title.</p>
           </div>
         )}
+      </section>
+
+      {/* PLATFORM TRUST */}
+      <section className="max-w-[1440px] mx-auto px-8 py-16">
+        <div className="hair-b pb-4 mb-8 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+          <div>
+            <div className="label mb-2">No. 03 - Platform layer</div>
+            <h2 className="display text-[42px] md:text-[52px] leading-tight">Browse deeper in Explore.</h2>
+          </div>
+          <button onClick={goExplore} className="swiss-btn accent md:self-end">
+            Open Explore <ArrowRight size={12}/>
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {[
+            ['Search lives off the landing page', 'The Explore index handles title, artist, tag, price, edition, and authenticity filters.'],
+            ['Community AI review', 'Buyers and sellers can vote when a listing looks AI-generated or lacks convincing process history.'],
+            ['Artist proof restores trust', 'Sellers can submit process notes and proof links so questioned listings can return with visible context.'],
+          ].map(([title, body], index) => (
+            <div key={title} className="hair-all bg-[var(--card)] p-6">
+              <div className="mono text-[11px] text-[var(--accent)]">0{index + 1}</div>
+              <div className="display text-[24px] mt-4">{title}</div>
+              <p className="text-[14px] text-[var(--muted)] mt-3 leading-relaxed">{body}</p>
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* FEATURED ARTISTS */}
@@ -1427,7 +1604,7 @@ const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist, toggl
 // ============================================================
 // ARTWORK DETAIL — Auction view
 // ============================================================
-const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids, placeBid, loadBidsForArtwork, onReport }) => {
+const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids, placeBid, loadBidsForArtwork, onReport, user, role, refreshCatalogue }) => {
   const work = artworkById(workId);
   const artist = artistById(work.artist);
   const [bidInput, setBidInput] = useState(minimumNextBid(work.currentBid));
@@ -1435,6 +1612,18 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
   const [timeLeft, setTimeLeft] = useState(work.endsAt);
   const [placingBid, setPlacingBid] = useState(false);
   const [bidNotice, setBidNotice] = useState('');
+  const [authState, setAuthState] = useState({ votes: [], proofs: [], ownVote: null });
+  const [authNotice, setAuthNotice] = useState('');
+  const [authSaving, setAuthSaving] = useState(false);
+  const [voteReason, setVoteReason] = useState('suspected_ai');
+  const [voteNote, setVoteNote] = useState('');
+  const [proofUrl, setProofUrl] = useState('');
+  const [proofNotes, setProofNotes] = useState('');
+  const authenticity = authenticityMeta(work.authenticityStatus);
+  const isRestricted = work.authenticityStatus === 'restricted';
+  const isArtistOwner = artist.profileId === user?.id;
+  const canVoteAi = (isBuyerRole(role) || isSellerRole(role)) && !isArtistOwner;
+  const canSubmitProof = isSellerRole(role) && isArtistOwner;
   useEffect(() => {
     const i = setInterval(() => setTimeLeft(t => Math.max(0, t - 1000)), 1000);
     return () => clearInterval(i);
@@ -1442,6 +1631,18 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
   useEffect(() => {
     loadBidsForArtwork?.(work.id);
   }, [loadBidsForArtwork, work.id]);
+  const refreshAuthenticity = async () => {
+    try {
+      const state = await fetchArtworkAuthenticity(work.id);
+      setAuthState(state);
+    } catch (err) {
+      setAuthNotice(err.message || 'Authenticity state could not load.');
+    }
+  };
+  useEffect(() => {
+    setAuthNotice('');
+    refreshAuthenticity();
+  }, [work.id]);
   useEffect(() => {
     setTimeLeft(work.endsAt);
   }, [work.id, work.endsAt]);
@@ -1455,6 +1656,10 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
   }, [work.id, currentTopBid]);
   const submitBid = async () => {
     setBidNotice('');
+    if (isRestricted) {
+      setBidNotice('Bidding is paused until the artist submits process proof.');
+      return;
+    }
     setPlacingBid(true);
     const result = await placeBid(work.id, bidInput);
     setPlacingBid(false);
@@ -1464,6 +1669,52 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
     }
     setBidNotice('Bid placed and synced to the auction ledger.');
     setBidInput(minimumNextBid(Number(result?.artwork?.currentBid || bidInput)));
+  };
+  const submitAuthenticityVote = async () => {
+    if (!canVoteAi) return;
+    setAuthSaving(true);
+    setAuthNotice('');
+    try {
+      await submitAiVote(work.id, voteReason, voteNote);
+      await refreshCatalogue?.();
+      await refreshAuthenticity();
+      setAuthNotice('AI review vote recorded.');
+    } catch (err) {
+      setAuthNotice(err.message || 'AI review vote failed.');
+    } finally {
+      setAuthSaving(false);
+    }
+  };
+  const clearAuthenticityVote = async () => {
+    setAuthSaving(true);
+    setAuthNotice('');
+    try {
+      await removeAiVote(work.id);
+      await refreshCatalogue?.();
+      await refreshAuthenticity();
+      setAuthNotice('Your AI review vote was removed.');
+    } catch (err) {
+      setAuthNotice(err.message || 'Vote removal failed.');
+    } finally {
+      setAuthSaving(false);
+    }
+  };
+  const submitProof = async () => {
+    if (!canSubmitProof) return;
+    setAuthSaving(true);
+    setAuthNotice('');
+    try {
+      await submitArtworkProof(work, proofUrl, proofNotes);
+      setProofUrl('');
+      setProofNotes('');
+      await refreshCatalogue?.();
+      await refreshAuthenticity();
+      setAuthNotice('Process proof submitted. Listing authenticity status updated.');
+    } catch (err) {
+      setAuthNotice(err.message || 'Process proof submission failed.');
+    } finally {
+      setAuthSaving(false);
+    }
   };
 
   return (
@@ -1479,7 +1730,7 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
         {/* LEFT — visual */}
         <div className="col-span-7">
           <div className="hair-all sticky top-[88px]">
-            <ArtVisual visual={work.visual}/>
+            <ArtVisual visual={work.visual} imageUrl={work.imageUrl} alt={work.title}/>
             <div className="hair-t p-4 flex justify-between items-center mono text-[11px]">
               <div className="flex gap-4">
                 <span className="text-[var(--muted)]">{work.dim}</span>
@@ -1521,6 +1772,11 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
               <div className="label">{bidCount} bids placed</div>
             </div>
             <div className="display text-[64px] leading-none mt-2">${fmt(currentTopBid)}</div>
+            {isRestricted && (
+              <div className="mt-4 hair-all p-3 bg-[var(--accent-soft)] text-[var(--accent)] text-[12px] leading-relaxed">
+                Bidding is paused by community AI review until process proof is submitted.
+              </div>
+            )}
             <div className="mt-4 hair-t pt-4 grid grid-cols-2 gap-4">
               <div>
                 <div className="label">Ends in</div>
@@ -1547,8 +1803,8 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
                   <span className="mono text-[12px] text-[var(--muted)]">USD</span>
                   <input value={bidInput} min={minNextBid} onChange={e => setBidInput(Number(e.target.value)||0)} type="number" className="bg-transparent outline-none mono text-[18px] flex-1 px-3 py-2.5 text-right"/>
                 </div>
-                <button onClick={submitBid} className="swiss-btn accent py-3" disabled={timeLeft <= 0 || placingBid || bidInput < minNextBid}>
-                  <Gavel size={12}/> {timeLeft <= 0 ? 'Ended' : placingBid ? 'Placing...' : 'Bid'}
+                <button onClick={submitBid} className="swiss-btn accent py-3" disabled={isRestricted || timeLeft <= 0 || placingBid || bidInput < minNextBid}>
+                  <Gavel size={12}/> {isRestricted ? 'Paused' : timeLeft <= 0 ? 'Ended' : placingBid ? 'Placing...' : 'Bid'}
                 </button>
               </div>
               {bidNotice && (
@@ -1579,6 +1835,77 @@ const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids,
                 ))}
               </div>
             </div>
+          </div>
+
+          <div className="hair-all bg-[var(--card)] p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="label">Community AI filter</div>
+                <div className="display text-[24px] mt-2">{authenticity.label}</div>
+                <p className="text-[13px] text-[var(--muted)] mt-2 leading-relaxed">{work.authenticityNote || authenticity.body}</p>
+              </div>
+              <div className="hair-all px-3 py-2 text-center min-w-[74px]">
+                <div className="mono text-[22px] leading-none">{work.aiVoteCount || authState.votes.length || 0}</div>
+                <div className="label mt-1">Votes</div>
+              </div>
+            </div>
+
+            {canVoteAi && (
+              <div className="mt-5 hair-t pt-5">
+                <div className="label mb-3">{authState.ownVote ? 'Your vote is recorded' : 'Vote if this appears AI-generated'}</div>
+                {!authState.ownVote && (
+                  <div className="grid grid-cols-1 gap-3">
+                    <select value={voteReason} onChange={event => setVoteReason(event.target.value)} className="swiss-input">
+                      <option value="suspected_ai">Suspected AI generation</option>
+                      <option value="inconsistent_process">Process looks inconsistent</option>
+                      <option value="metadata_mismatch">Metadata mismatch</option>
+                      <option value="other">Other authenticity concern</option>
+                    </select>
+                    <textarea value={voteNote} onChange={event => setVoteNote(event.target.value)} className="swiss-input min-h-[90px]" maxLength={800} placeholder="Optional: what made you doubt this listing?"/>
+                  </div>
+                )}
+                <div className="mt-3 flex gap-2">
+                  {authState.ownVote ? (
+                    <button onClick={clearAuthenticityVote} disabled={authSaving} className="swiss-btn ghost">Remove vote</button>
+                  ) : (
+                    <button onClick={submitAuthenticityVote} disabled={authSaving} className="swiss-btn"><Flag size={12}/> Vote likely AI</button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {canSubmitProof && (
+              <div className="mt-5 hair-t pt-5">
+                <div className="label mb-3">Artist process proof</div>
+                <div className="grid grid-cols-1 gap-3">
+                  <input value={proofUrl} onChange={event => setProofUrl(event.target.value)} className="swiss-input" placeholder="Process link, timelapse, layered source, or WIP URL"/>
+                  <textarea value={proofNotes} onChange={event => setProofNotes(event.target.value)} className="swiss-input min-h-[110px]" maxLength={1600} placeholder="Describe the process, tools, source files, and how the final was made."/>
+                </div>
+                <button onClick={submitProof} disabled={authSaving || proofNotes.trim().length < 20} className={`swiss-btn accent mt-3 ${authSaving || proofNotes.trim().length < 20 ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  Submit proof <ArrowRight size={12}/>
+                </button>
+              </div>
+            )}
+
+            {authState.proofs.length > 0 && (
+              <div className="mt-5 hair-t pt-5">
+                <div className="label mb-3">Submitted proof</div>
+                <div className="space-y-3">
+                  {authState.proofs.slice(0, 3).map(proof => (
+                    <div key={proof.id} className="hair-all p-3 bg-[var(--bg)]">
+                      <div className="flex justify-between gap-3">
+                        <div className="mono text-[10px] uppercase tracking-[0.12em]">{proof.status}</div>
+                        <div className="mono text-[10px] text-[var(--muted)]">{relativeTime(proof.createdAt)}</div>
+                      </div>
+                      <p className="text-[12px] text-[var(--ink-2)] mt-2 leading-relaxed">{proof.notes}</p>
+                      {proof.proofUrl && <a href={proof.proofUrl} target="_blank" rel="noreferrer" className="mono text-[10px] text-[var(--accent)] underline-hover mt-2 inline-block">Open proof link</a>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {authNotice && <div className="text-[12px] text-[var(--accent)] mt-3">{authNotice}</div>}
           </div>
 
           {/* TABS */}
@@ -2185,78 +2512,7 @@ const ReportModal = ({ target, onClose, onSubmit }) => {
   );
 };
 
-const SellerOnboardingCard = ({ profile, onCreate }) => {
-  const [form, setForm] = useState({
-    handle: profile?.handle || profile?.display_name || '',
-    name: profile?.display_name || '',
-    city: profile?.city || '',
-    bio: profile?.bio || '',
-    accent: ACCENT_SWATCHES[0],
-  });
-  const [saving, setSaving] = useState(false);
-
-  const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
-
-  const submit = async (event) => {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      await onCreate(form);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <form onSubmit={submit} className="hair-all bg-[var(--card)] p-6 mb-8">
-      <div className="flex justify-between items-start gap-4 hair-b pb-5 mb-6">
-        <div>
-          <div className="label">Seller setup</div>
-          <h2 className="display text-[32px] mt-2">Create your studio.</h2>
-        </div>
-        <button type="submit" disabled={saving || !form.name.trim() || !form.handle.trim()} className={`swiss-btn accent ${saving ? 'opacity-60 cursor-wait' : ''}`}>
-          {saving ? 'Creating...' : 'Create studio'} <ArrowRight size={12}/>
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-5">
-        <div>
-          <label htmlFor="seller-name" className="label mb-2 block">Studio name</label>
-          <input id="seller-name" value={form.name} onChange={event => updateField('name', event.target.value)} className="swiss-input" maxLength={120} required/>
-        </div>
-        <div>
-          <label htmlFor="seller-handle" className="label mb-2 block">Handle</label>
-          <input id="seller-handle" value={form.handle} onChange={event => updateField('handle', event.target.value)} className="swiss-input" maxLength={48} required/>
-        </div>
-        <div>
-          <label htmlFor="seller-city" className="label mb-2 block">City</label>
-          <input id="seller-city" value={form.city} onChange={event => updateField('city', event.target.value)} className="swiss-input" maxLength={120}/>
-        </div>
-        <div>
-          <label className="label mb-2 block">Accent</label>
-          <div className="grid grid-cols-6 gap-2">
-            {ACCENT_SWATCHES.map(color => (
-              <button
-                key={color}
-                type="button"
-                onClick={() => updateField('accent', color)}
-                className={`h-11 hair-all ${form.accent === color ? 'outline outline-2 outline-[var(--ink)]' : ''}`}
-                style={{ backgroundColor: color }}
-                aria-label={`Use accent ${color}`}
-              />
-            ))}
-          </div>
-        </div>
-        <div className="col-span-2">
-          <label htmlFor="seller-bio" className="label mb-2 block">Bio</label>
-          <textarea id="seller-bio" value={form.bio} onChange={event => updateField('bio', event.target.value)} className="swiss-input min-h-[110px]" maxLength={900}/>
-        </div>
-      </div>
-    </form>
-  );
-};
-
-const SellerStudioModal = ({ open, profile, ownedArtist, onClose, onSubmit }) => {
+const SellerStudioForm = ({ profile, ownedArtist, onSubmit, onDone }) => {
   const [form, setForm] = useState({
     handle: '',
     name: '',
@@ -2267,7 +2523,6 @@ const SellerStudioModal = ({ open, profile, ownedArtist, onClose, onSubmit }) =>
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
     setForm({
       handle: ownedArtist?.handle || profile?.handle || profile?.display_name || '',
       name: ownedArtist?.name || profile?.display_name || '',
@@ -2275,9 +2530,7 @@ const SellerStudioModal = ({ open, profile, ownedArtist, onClose, onSubmit }) =>
       bio: ownedArtist?.bio || profile?.bio || '',
       accent: ownedArtist?.accent || ACCENT_SWATCHES[0],
     });
-  }, [open, ownedArtist, profile]);
-
-  if (!open) return null;
+  }, [ownedArtist, profile]);
 
   const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
   const formValid = form.name.trim().length > 0 && form.handle.trim().length > 0;
@@ -2292,34 +2545,30 @@ const SellerStudioModal = ({ open, profile, ownedArtist, onClose, onSubmit }) =>
     } finally {
       setSaving(false);
     }
-    if (ok) onClose();
+    if (ok) onDone?.();
   };
 
   return (
-    <div className="fixed inset-0 z-[260] bg-[rgba(14,14,12,0.42)] backdrop-blur-sm flex items-center justify-center p-4">
-      <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full max-w-[720px] max-h-[92vh] overflow-y-auto shadow-[0_24px_80px_rgba(14,14,12,0.22)]">
-        <div className="p-6 hair-b flex items-start justify-between gap-4">
+      <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full">
+        <div className="p-5 sm:p-6 hair-b flex items-start justify-between gap-4">
           <div>
             <div className="label">{ownedArtist ? 'Studio settings' : 'Seller setup'}</div>
-            <h2 className="display text-[34px] mt-2">{ownedArtist ? 'Edit your studio.' : 'Create your studio.'}</h2>
+            <h2 className="display text-[30px] sm:text-[34px] mt-2">{ownedArtist ? 'Edit your studio.' : 'Create your studio.'}</h2>
           </div>
-          <button type="button" onClick={onClose} className="hair-all w-9 h-9 inline-flex items-center justify-center hover:bg-[var(--bg-2)]" aria-label="Close studio settings">
-            <X size={16}/>
-          </button>
         </div>
 
-        <div className="p-6 grid grid-cols-2 gap-5">
+        <div className="p-5 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div>
-            <label htmlFor="studio-modal-name" className="label mb-2 block">Studio name</label>
-            <input id="studio-modal-name" value={form.name} onChange={event => updateField('name', event.target.value)} className="swiss-input" maxLength={120} required/>
+            <label htmlFor="studio-form-name" className="label mb-2 block">Studio name</label>
+            <input id="studio-form-name" value={form.name} onChange={event => updateField('name', event.target.value)} className="swiss-input" maxLength={120} required/>
           </div>
           <div>
-            <label htmlFor="studio-modal-handle" className="label mb-2 block">Handle</label>
-            <input id="studio-modal-handle" value={form.handle} onChange={event => updateField('handle', event.target.value)} className="swiss-input" maxLength={48} required/>
+            <label htmlFor="studio-form-handle" className="label mb-2 block">Handle</label>
+            <input id="studio-form-handle" value={form.handle} onChange={event => updateField('handle', event.target.value)} className="swiss-input" maxLength={48} required/>
           </div>
           <div>
-            <label htmlFor="studio-modal-city" className="label mb-2 block">City</label>
-            <input id="studio-modal-city" value={form.city} onChange={event => updateField('city', event.target.value)} className="swiss-input" maxLength={120}/>
+            <label htmlFor="studio-form-city" className="label mb-2 block">City</label>
+            <input id="studio-form-city" value={form.city} onChange={event => updateField('city', event.target.value)} className="swiss-input" maxLength={120}/>
           </div>
           <div>
             <label className="label mb-2 block">Accent</label>
@@ -2336,24 +2585,23 @@ const SellerStudioModal = ({ open, profile, ownedArtist, onClose, onSubmit }) =>
               ))}
             </div>
           </div>
-          <div className="col-span-2">
-            <label htmlFor="studio-modal-bio" className="label mb-2 block">Bio</label>
-            <textarea id="studio-modal-bio" value={form.bio} onChange={event => updateField('bio', event.target.value)} className="swiss-input min-h-[140px]" maxLength={900}/>
+          <div className="sm:col-span-2">
+            <label htmlFor="studio-form-bio" className="label mb-2 block">Bio</label>
+            <textarea id="studio-form-bio" value={form.bio} onChange={event => updateField('bio', event.target.value)} className="swiss-input min-h-[140px]" maxLength={900}/>
           </div>
         </div>
 
-        <div className="p-6 hair-t flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="swiss-btn ghost">Cancel</button>
+        <div className="p-5 sm:p-6 hair-t flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+          <button type="button" onClick={onDone} className="swiss-btn ghost justify-center">Back to overview</button>
           <button type="submit" disabled={saving || !formValid} className={`swiss-btn accent ${saving || !formValid ? 'opacity-60 cursor-not-allowed' : ''}`}>
             {saving ? 'Saving...' : ownedArtist ? 'Save studio' : 'Create studio'} <ArrowRight size={12}/>
           </button>
         </div>
       </form>
-    </div>
   );
 };
 
-const SellerArtworkModal = ({ open, onClose, onSubmit }) => {
+const SellerArtworkForm = ({ onSubmit, onUploadImage, onDone }) => {
   const [form, setForm] = useState({
     title: '',
     visual: VISUAL_OPTIONS[0] || 'v1',
@@ -2366,6 +2614,9 @@ const SellerArtworkModal = ({ open, onClose, onSubmit }) => {
     tags: 'digital, abstract',
   });
   const [saving, setSaving] = useState(false);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState('');
+  const [mediaError, setMediaError] = useState('');
   const startBidNumber = Number(form.startBid);
   const durationHoursNumber = Number(form.durationHours);
   const formValid = form.title.trim().length > 0
@@ -2375,43 +2626,91 @@ const SellerArtworkModal = ({ open, onClose, onSubmit }) => {
     && durationHoursNumber >= 24
     && durationHoursNumber <= 168;
 
-  if (!open) return null;
+  useEffect(() => {
+    if (!imageFile) {
+      setImagePreview('');
+      return undefined;
+    }
+    const url = URL.createObjectURL(imageFile);
+    setImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile]);
 
   const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+  const selectImage = (event) => {
+    const file = event.target.files?.[0];
+    setMediaError('');
+    if (!file) {
+      setImageFile(null);
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      setMediaError('Choose a PNG, JPG, GIF, or WEBP file.');
+      setImageFile(null);
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setMediaError('Artwork images must be 10MB or smaller.');
+      setImageFile(null);
+      return;
+    }
+    setImageFile(file);
+  };
 
   const submit = async (event) => {
     event.preventDefault();
     if (!formValid) return;
     setSaving(true);
+    setMediaError('');
     try {
-      await onSubmit({
+      const imageUrl = imageFile ? await onUploadImage(imageFile) : '';
+      const ok = await onSubmit({
         ...form,
         startBid: startBidNumber,
         durationHours: durationHoursNumber,
         year: Number(form.year),
+        imageUrl,
       });
+      if (ok) {
+        setImageFile(null);
+        onDone?.();
+      }
+    } catch (err) {
+      setMediaError(err.message || 'Artwork image upload failed.');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[260] bg-[rgba(14,14,12,0.42)] backdrop-blur-sm flex items-center justify-center p-4">
-      <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full max-w-[860px] max-h-[92vh] overflow-y-auto shadow-[0_24px_80px_rgba(14,14,12,0.22)]">
-        <div className="p-6 hair-b flex items-start justify-between gap-4">
+      <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full">
+        <div className="p-5 sm:p-6 hair-b flex items-start justify-between gap-4">
           <div>
             <div className="label">New auction</div>
-            <h2 className="display text-[34px] mt-2">List new work.</h2>
+            <h2 className="display text-[30px] sm:text-[34px] mt-2">List new work.</h2>
           </div>
-          <button type="button" onClick={onClose} className="hair-all w-9 h-9 inline-flex items-center justify-center hover:bg-[var(--bg-2)]" aria-label="Close artwork form">
-            <X size={16}/>
-          </button>
         </div>
 
-        <div className="p-6 grid grid-cols-12 gap-6">
-          <div className="col-span-5">
+        <div className="p-5 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-5">
             <div className="hair-all bg-[var(--bg-2)]">
-              <ArtVisual visual={form.visual}/>
+              <ArtVisual visual={form.visual} imageUrl={imagePreview} alt={form.title || 'Artwork upload preview'}/>
+            </div>
+            <div className="mt-3">
+              <label htmlFor="artwork-image-upload" className="swiss-btn ghost w-full justify-center cursor-pointer">
+                <Upload size={12}/> Upload image
+              </label>
+              <input
+                id="artwork-image-upload"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={selectImage}
+                className="sr-only"
+              />
+              <div className="mono text-[10px] text-[var(--muted)] mt-2">
+                {imageFile ? imageFile.name : 'PNG, JPG, WEBP, or GIF - 10MB max'}
+              </div>
+              {mediaError && <div className="text-[12px] text-[var(--accent)] mt-2">{mediaError}</div>}
             </div>
             <div className="grid grid-cols-4 gap-2 mt-3">
               {VISUAL_OPTIONS.slice(0, 12).map(visual => (
@@ -2428,8 +2727,8 @@ const SellerArtworkModal = ({ open, onClose, onSubmit }) => {
             </div>
           </div>
 
-          <div className="col-span-7 grid grid-cols-2 gap-5">
-            <div className="col-span-2">
+          <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div className="sm:col-span-2">
               <label htmlFor="artwork-title" className="label mb-2 block">Title</label>
               <input id="artwork-title" value={form.title} onChange={event => updateField('title', event.target.value)} className="swiss-input" maxLength={140} required/>
             </div>
@@ -2457,25 +2756,24 @@ const SellerArtworkModal = ({ open, onClose, onSubmit }) => {
               <label htmlFor="artwork-format" className="label mb-2 block">Format</label>
               <input id="artwork-format" value={form.format} onChange={event => updateField('format', event.target.value)} className="swiss-input" maxLength={80}/>
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <label htmlFor="artwork-tags" className="label mb-2 block">Tags</label>
               <input id="artwork-tags" value={form.tags} onChange={event => updateField('tags', event.target.value)} className="swiss-input" maxLength={160}/>
             </div>
           </div>
         </div>
 
-        <div className="p-6 hair-t flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="swiss-btn ghost">Cancel</button>
+        <div className="p-5 sm:p-6 hair-t flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+          <button type="button" onClick={onDone} className="swiss-btn ghost justify-center">Back to auctions</button>
           <button type="submit" disabled={saving || !formValid} className={`swiss-btn accent ${saving || !formValid ? 'opacity-60 cursor-not-allowed' : ''}`}>
             {saving ? 'Listing...' : 'List work'} <ArrowRight size={12}/>
           </button>
         </div>
       </form>
-    </div>
   );
 };
 
-const SellerCommissionModal = ({ open, onClose, onSubmit }) => {
+const SellerCommissionForm = ({ onSubmit, onDone }) => {
   const [form, setForm] = useState({
     title: '',
     slots: '3',
@@ -2497,8 +2795,6 @@ const SellerCommissionModal = ({ open, onClose, onSubmit }) => {
     && daysNumber >= 1
     && daysNumber <= 60;
 
-  if (!open) return null;
-
   const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
   const submit = async (event) => {
@@ -2506,32 +2802,29 @@ const SellerCommissionModal = ({ open, onClose, onSubmit }) => {
     if (!formValid) return;
     setSaving(true);
     try {
-      await onSubmit({
+      const ok = await onSubmit({
         ...form,
         slots: slotsNumber,
         price: priceNumber,
         days: daysNumber,
       });
+      if (ok) onDone?.();
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[260] bg-[rgba(14,14,12,0.42)] backdrop-blur-sm flex items-center justify-center p-4">
-      <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full max-w-[640px] max-h-[92vh] overflow-y-auto shadow-[0_24px_80px_rgba(14,14,12,0.22)]">
-        <div className="p-6 hair-b flex items-start justify-between gap-4">
+      <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full">
+        <div className="p-5 sm:p-6 hair-b flex items-start justify-between gap-4">
           <div>
             <div className="label">New commission</div>
-            <h2 className="display text-[34px] mt-2">Open a board.</h2>
+            <h2 className="display text-[30px] sm:text-[34px] mt-2">Open a board.</h2>
           </div>
-          <button type="button" onClick={onClose} className="hair-all w-9 h-9 inline-flex items-center justify-center hover:bg-[var(--bg-2)]" aria-label="Close commission form">
-            <X size={16}/>
-          </button>
         </div>
 
-        <div className="p-6 grid grid-cols-2 gap-5">
-          <div className="col-span-2">
+        <div className="p-5 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div className="sm:col-span-2">
             <label htmlFor="seller-commission-title" className="label mb-2 block">Title</label>
             <input id="seller-commission-title" value={form.title} onChange={event => updateField('title', event.target.value)} className="swiss-input" maxLength={140} required/>
           </div>
@@ -2547,20 +2840,19 @@ const SellerCommissionModal = ({ open, onClose, onSubmit }) => {
             <label htmlFor="seller-commission-days" className="label mb-2 block">Delivery days</label>
             <input id="seller-commission-days" type="number" min="1" max="60" value={form.days} onChange={event => updateField('days', event.target.value)} className="swiss-input" required/>
           </div>
-          <div className="col-span-2">
+          <div className="sm:col-span-2">
             <label htmlFor="seller-commission-brief" className="label mb-2 block">Brief</label>
             <textarea id="seller-commission-brief" value={form.brief} onChange={event => updateField('brief', event.target.value)} className="swiss-input min-h-[150px]" maxLength={900}/>
           </div>
         </div>
 
-        <div className="p-6 hair-t flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="swiss-btn ghost">Cancel</button>
+        <div className="p-5 sm:p-6 hair-t flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+          <button type="button" onClick={onDone} className="swiss-btn ghost justify-center">Back to commissions</button>
           <button type="submit" disabled={saving || !formValid} className={`swiss-btn accent ${saving || !formValid ? 'opacity-60 cursor-not-allowed' : ''}`}>
             {saving ? 'Opening...' : 'Open board'} <ArrowRight size={12}/>
           </button>
         </div>
       </form>
-    </div>
   );
 };
 
@@ -2625,7 +2917,7 @@ const FeedView = ({ goToArtwork, goToArtist, follows, toggleFollow, likes, toggl
                       {w && (
                         <div onClick={() => goToArtwork(w.id)} className="mt-4 hair-all cursor-pointer flex gap-4 p-3 group hover:bg-[var(--card)]">
                           <div className="w-20 h-20 hair-all flex-shrink-0">
-                            <ArtVisual visual={w.visual}/>
+                            <ArtVisual visual={w.visual} imageUrl={w.imageUrl} alt={w.title}/>
                           </div>
                           <div className="flex-1 flex flex-col justify-between">
                             <div>
@@ -2811,7 +3103,7 @@ const BuyerDashboard = ({ goToArtwork, likes, toggleLike, userBids, watchlist, t
                 <div className="col-span-1 mono text-[11px] text-[var(--muted)]">{String(i+1).padStart(3,'0')}</div>
                 <div className="col-span-5 flex items-center gap-3">
                   <div className="w-12 h-12 hair-all flex-shrink-0">
-                    <ArtVisual visual={w.visual}/>
+                    <ArtVisual visual={w.visual} imageUrl={w.imageUrl} alt={w.title}/>
                   </div>
                   <div>
                     <div className="text-[14px] font-medium">{w.title}</div>
@@ -2906,8 +3198,8 @@ const BuyerDashboard = ({ goToArtwork, likes, toggleLike, userBids, watchlist, t
 // ============================================================
 // ARTIST STUDIO DASHBOARD
 // ============================================================
-const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist, commissionState, onOpenCommissionThread, onCreateArtist, onOpenStudioModal, onOpenArtworkModal, onOpenCommissionModal }) => {
-  const [tab, setTab] = useState('overview');
+const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist, commissionState, onOpenCommissionThread, onSubmitStudio, onSubmitArtwork, onUploadArtworkImage, onSubmitCommission }) => {
+  const [tab, setTab] = useState(() => ownedArtist ? 'overview' : 'setup');
   const ownedWorks = ownedArtist ? ARTWORKS.filter(w => w.artist === ownedArtist.id) : [];
   const ownedCommissions = ownedArtist ? COMMISSIONS.filter(c => c.artist === ownedArtist.id) : [];
   const sellerBookings = commissionState?.artistBookings || [];
@@ -2915,6 +3207,28 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
   const auctionTotal = ownedWorks.reduce((total, work) => total + Number(work.currentBid || 0), 0);
   const openSlots = ownedCommissions.reduce((sum, c) => sum + Math.max(0, c.slots - c.taken), 0);
   const displayName = ownedArtist?.handle || profile?.handle || profile?.display_name || 'seller';
+  const guardedSetTab = (next) => {
+    if (!ownedArtist && next !== 'setup') {
+      setTab('setup');
+      return;
+    }
+    setTab(next);
+  };
+  const studioTabs = [
+    {k:'overview',l:'Overview',disabled:!ownedArtist},
+    {k:'auctions',l:'Auctions',disabled:!ownedArtist},
+    {k:'commissions',l:'Commissions',disabled:!ownedArtist},
+    {k:'list-work',l:'List work',disabled:!ownedArtist},
+    {k:'new-commission',l:'New commission',disabled:!ownedArtist},
+    {k:'setup',l:ownedArtist ? 'Studio settings' : 'Studio setup'},
+    {k:'payouts',l:'Payouts',disabled:!ownedArtist},
+    {k:'audience',l:'Audience',disabled:!ownedArtist},
+  ];
+
+  useEffect(() => {
+    if (!ownedArtist && tab !== 'setup') setTab('setup');
+  }, [ownedArtist, tab]);
+
   const todoItems = [
     ...sellerBookings.slice(0, 3).map(booking => ({
       p: '!',
@@ -2932,27 +3246,40 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
       p: '.',
       t: `${c.title} has ${c.slots - c.taken} open slot${c.slots - c.taken === 1 ? '' : 's'}`,
       sub: `$${fmt(c.price)} - ${c.days}d delivery`,
-      action: () => setTab('commissions'),
+      action: () => guardedSetTab('commissions'),
     })),
   ].slice(0, 5);
 
   return (
-    <main className="fade-in max-w-[1440px] mx-auto px-8 py-10">
-      <div className="hair-b pb-4 mb-8 flex justify-between items-end">
+    <main className="fade-in max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
+      <div className="hair-b pb-4 mb-8 flex flex-col lg:flex-row lg:justify-between lg:items-end gap-5">
         <div>
           <div className="label mb-2">№ STUDIO — Seller / {displayName}</div>
-          <h1 className="display text-[56px] leading-tight">Studio, today.</h1>
+          <h1 className="display text-[42px] sm:text-[56px] leading-tight">Studio, today.</h1>
         </div>
-        <div className="flex gap-3">
-          <button onClick={onOpenStudioModal} className="swiss-btn ghost"><User size={12}/> {ownedArtist ? 'Edit studio' : 'Studio setup'}</button>
-          <button onClick={onOpenCommissionModal} disabled={!ownedArtist} className={`swiss-btn ghost ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}><Plus size={12}/> New commission</button>
-          <button onClick={onOpenArtworkModal} disabled={!ownedArtist} className={`swiss-btn ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}><Plus size={12}/> List new work</button>
+        <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+          <button onClick={() => guardedSetTab('setup')} className="swiss-btn ghost justify-center"><User size={12}/> {ownedArtist ? 'Edit studio' : 'Studio setup'}</button>
+          <button onClick={() => guardedSetTab('new-commission')} disabled={!ownedArtist} className={`swiss-btn ghost justify-center ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}><Plus size={12}/> New commission</button>
+          <button onClick={() => guardedSetTab('list-work')} disabled={!ownedArtist} className={`swiss-btn justify-center ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}><Plus size={12}/> List new work</button>
         </div>
       </div>
 
-      {!ownedArtist && <SellerOnboardingCard profile={profile} onCreate={onCreateArtist}/>}
+      {!ownedArtist && (
+        <div className="hair-all bg-[var(--card)] p-6 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="label">Seller setup</div>
+            <h2 className="display text-[26px] sm:text-[28px] mt-2">Create your studio in the setup page.</h2>
+            <p className="text-[13px] text-[var(--muted)] mt-2 max-w-[620px]">
+              Add a seller identity before publishing auctions, commission boards, and payout details.
+            </p>
+          </div>
+          <button onClick={() => guardedSetTab('setup')} className="swiss-btn accent shrink-0">
+            <User size={12}/> Studio setup
+          </button>
+        </div>
+      )}
 
-      <div className="grid grid-cols-5 gap-5 mb-10">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-5 mb-10">
         {[
           {l:'Live auctions',v:String(ownedWorks.length),d: ownedWorks.length ? `${ownedWorks.filter(w => w.endsAt < 1000*60*60*24).length} ending today` : 'No listed works'},
           {l:'Open slots',v:`${openSlots}`,d:`Across ${ownedCommissions.length} boards`},
@@ -2968,15 +3295,39 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
         ))}
       </div>
 
-      <div className="admin-tabs flex gap-2 mb-8">
-        {[{k:'overview',l:'Overview'},{k:'auctions',l:'Auctions'},{k:'commissions',l:'Commissions'},{k:'payouts',l:'Payouts'},{k:'audience',l:'Audience'}].map(t => (
-          <button key={t.k} onClick={() => setTab(t.k)} className={`tab-pill ${tab===t.k?'active':''}`}>{t.l}</button>
+      <div className="admin-tabs flex gap-2 mb-8 overflow-x-auto pb-2">
+        {studioTabs.map(t => (
+          <button key={t.k} onClick={() => guardedSetTab(t.k)} disabled={t.disabled} className={`tab-pill shrink-0 ${tab===t.k?'active':''} ${t.disabled ? 'opacity-45 cursor-not-allowed' : ''}`}>{t.l}</button>
         ))}
       </div>
 
+      {tab === 'setup' && (
+        <SellerStudioForm
+          profile={profile}
+          ownedArtist={ownedArtist}
+          onSubmit={onSubmitStudio}
+          onDone={() => setTab('overview')}
+        />
+      )}
+
+      {tab === 'list-work' && ownedArtist && (
+        <SellerArtworkForm
+          onSubmit={onSubmitArtwork}
+          onUploadImage={onUploadArtworkImage}
+          onDone={() => setTab('auctions')}
+        />
+      )}
+
+      {tab === 'new-commission' && ownedArtist && (
+        <SellerCommissionForm
+          onSubmit={onSubmitCommission}
+          onDone={() => setTab('commissions')}
+        />
+      )}
+
       {tab === 'overview' && (
-        <div className="grid grid-cols-12 gap-8">
-          <div className="col-span-8">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+          <div className="xl:col-span-8">
             <div className="hair-b pb-3 mb-5 flex justify-between items-baseline">
               <h3 className="display text-[28px]">Revenue, 90 days</h3>
               <span className="mono text-[11px] text-[var(--muted)]">USD</span>
@@ -2998,7 +3349,7 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
                 <span>FEB 14</span><span>MAR 01</span><span>MAR 14</span><span>APR 01</span><span>APR 14</span><span>MAY 01</span><span>MAY 14</span>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-5 mt-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mt-5">
               <div className="hair-all p-4">
                 <div className="label">Live auction value</div>
                 <div className="mono text-[24px] mt-1">${fmt(auctionTotal)}</div>
@@ -3013,13 +3364,13 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
               </div>
             </div>
           </div>
-          <div className="col-span-4">
+          <div className="xl:col-span-4">
             <div className="hair-b pb-3 mb-5">
               <h3 className="display text-[24px]">To do</h3>
             </div>
             <div className="space-y-3">
               {(todoItems.length ? todoItems : [
-                {p:'.', t: ownedArtist ? 'List your first artwork or commission board' : 'Create a studio profile to unlock seller tools', sub: ownedArtist ? 'Use the actions above to open your shop.' : 'Studio setup links your seller account to catalogue rows.', action: ownedArtist ? onOpenArtworkModal : onOpenStudioModal},
+                {p:'.', t: ownedArtist ? 'List your first artwork or commission board' : 'Create a studio profile to unlock seller tools', sub: ownedArtist ? 'Use the Studio tabs to open your shop.' : 'Studio setup links your seller account to catalogue rows.', action: ownedArtist ? () => guardedSetTab('list-work') : () => guardedSetTab('setup')},
               ]).map((todo,i) => (
                 <button key={i} onClick={todo.action} className="hair-all p-3 flex items-start gap-3 cursor-pointer hover:bg-[var(--card)] text-left w-full">
                   <span className={`mono text-[14px] ${todo.p === '!' ? 'text-[var(--accent)]' : 'text-[var(--muted)]'}`}>{todo.p}</span>
@@ -3036,8 +3387,8 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
       )}
 
       {tab === 'auctions' && (
-        <div>
-          <div className="grid grid-cols-12 gap-4 label hair-b pb-3">
+        <div className="overflow-x-auto pb-2">
+          <div className="min-w-[760px] grid grid-cols-12 gap-4 label hair-b pb-3">
             <div className="col-span-1">№</div>
             <div className="col-span-4">Work</div>
             <div className="col-span-2">Bids</div>
@@ -3046,10 +3397,10 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
             <div className="col-span-1 text-right">Actions</div>
           </div>
           {ownedWorks.map((w,i) => (
-            <div key={w.id} className="grid grid-cols-12 gap-4 py-4 hair-b items-center">
+            <div key={w.id} className="min-w-[760px] grid grid-cols-12 gap-4 py-4 hair-b items-center">
               <div className="col-span-1 mono text-[11px] text-[var(--muted)]">{String(i+1).padStart(3,'0')}</div>
               <div className="col-span-4 flex items-center gap-3">
-                <div className="w-12 h-12 hair-all"><ArtVisual visual={w.visual}/></div>
+                <div className="w-12 h-12 hair-all"><ArtVisual visual={w.visual} imageUrl={w.imageUrl} alt={w.title}/></div>
                 <div>
                   <div className="text-[14px] font-medium">{w.title}</div>
                   <div className="mono text-[11px] text-[var(--muted)]">Listed {relativeTime(w.createdAt)}</div>
@@ -3071,12 +3422,12 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
               <p className="text-[13px] text-[var(--muted)] mt-2">Linked seller works from Supabase will appear here.</p>
             </div>
           )}
-          <button onClick={onOpenArtworkModal} disabled={!ownedArtist} className={`swiss-btn mt-8 ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}><Plus size={12}/> List new auction</button>
+          <button onClick={() => guardedSetTab('list-work')} disabled={!ownedArtist} className={`swiss-btn mt-8 ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}><Plus size={12}/> List new auction</button>
         </div>
       )}
 
       {tab === 'commissions' && (
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {ownedCommissions.map(c => {
             const remaining = Math.max(0, c.slots - c.taken);
             return (
@@ -3129,15 +3480,15 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
             <Plus size={24} className="text-[var(--muted)]"/>
             <div className="display text-[22px] mt-4">Open new commission</div>
             <div className="text-[12px] text-[var(--muted)] mt-1 max-w-[200px]">Set price, slots, brief, and delivery window.</div>
-            <button onClick={onOpenCommissionModal} disabled={!ownedArtist} className={`swiss-btn mt-5 ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}>Create commission</button>
+            <button onClick={() => guardedSetTab('new-commission')} disabled={!ownedArtist} className={`swiss-btn mt-5 ${!ownedArtist ? 'opacity-50 cursor-not-allowed' : ''}`}>Create commission</button>
           </div>
         </div>
       )}
 
       {tab === 'payouts' && (
         <div>
-          <div className="hair-all p-6 mb-8 bg-[var(--card)] grid grid-cols-4 gap-6">
-            <div className="col-span-2">
+          <div className="hair-all p-6 mb-8 bg-[var(--card)] grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="md:col-span-2">
               <div className="label">Next payout</div>
               <div className="display text-[48px] mt-2 leading-none">${fmt(Math.round(escrowTotal * 0.85))}.00</div>
               <div className="mono text-[11px] text-[var(--muted)] mt-2">Monday payout queue - bank account pending</div>
@@ -3157,7 +3508,8 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
           <div className="hair-b pb-3 mb-4">
             <h3 className="display text-[24px]">Recent transactions</h3>
           </div>
-          <div className="grid grid-cols-12 gap-4 label hair-b pb-2">
+          <div className="overflow-x-auto">
+          <div className="min-w-[760px] grid grid-cols-12 gap-4 label hair-b pb-2">
             <div className="col-span-1">№</div>
             <div className="col-span-3">Type</div>
             <div className="col-span-4">Reference</div>
@@ -3171,7 +3523,7 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
             {t:'Auction won',r:'A to Z — to thora.k',d:'03 May',a:840},
             {t:'Commission booked',r:'Slot 02 — k.osman',d:'01 May',a:480},
           ].map((tx,i) => (
-            <div key={i} className="grid grid-cols-12 gap-4 py-3 hair-b items-center text-[13px]">
+            <div key={i} className="min-w-[760px] grid grid-cols-12 gap-4 py-3 hair-b items-center text-[13px]">
               <div className="col-span-1 mono text-[11px] text-[var(--muted)]">{String(i+1).padStart(3,'0')}</div>
               <div className="col-span-3">{tx.t}</div>
               <div className="col-span-4 text-[var(--muted)]">{tx.r}</div>
@@ -3179,12 +3531,13 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
               <div className={`col-span-2 mono text-right font-medium ${tx.a < 0 ? 'text-[var(--muted)]' : ''}`}>{tx.a < 0 ? '−' : '+'}${fmt(Math.abs(tx.a))}</div>
             </div>
           ))}
+          </div>
         </div>
       )}
 
       {tab === 'audience' && (
-        <div className="grid grid-cols-12 gap-8">
-          <div className="col-span-8">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+          <div className="xl:col-span-8">
             <div className="hair-b pb-3 mb-5">
               <h3 className="display text-[28px]">Followers, 90 days</h3>
             </div>
@@ -3209,7 +3562,7 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
             <div className="mt-8 hair-b pb-3 mb-5">
               <h3 className="display text-[28px]">Recent followers</h3>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {['0xCarmen','thora.k','studio_ng','merrick','j.lim','novak','quint','rye'].map((u,i) => (
                 <div key={i} className="hair-all p-3 flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -3224,7 +3577,7 @@ const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist,
               ))}
             </div>
           </div>
-          <div className="col-span-4">
+          <div className="xl:col-span-4">
             <div className="hair-all p-5 bg-[var(--card)]">
               <div className="label">Reach this week</div>
               <div className="space-y-3 mt-4 text-[13px]">
@@ -3478,7 +3831,7 @@ const AdminDashboard = ({ goToArtist, trustState }) => {
             <div key={w.id} className="grid grid-cols-12 gap-4 py-3 hair-b items-center text-[13px]">
               <div className="col-span-1 mono text-[11px] text-[var(--muted)]">{w.id.toUpperCase()}</div>
               <div className="col-span-4 flex items-center gap-3">
-                <div className="w-9 h-9 hair-all"><ArtVisual visual={w.visual}/></div>
+                <div className="w-9 h-9 hair-all"><ArtVisual visual={w.visual} imageUrl={w.imageUrl} alt={w.title}/></div>
                 <div>
                   <div>{w.title}</div>
                   <div className="mono text-[10px] text-[var(--muted)]">{artistById(w.artist).handle}</div>
@@ -3891,9 +4244,6 @@ export default function App() {
   const [bookingCommission, setBookingCommission] = useState(null);
   const [threadBooking, setThreadBooking] = useState(null);
   const [sendingThreadMessage, setSendingThreadMessage] = useState(false);
-  const [sellerStudioOpen, setSellerStudioOpen] = useState(false);
-  const [sellerArtworkOpen, setSellerArtworkOpen] = useState(false);
-  const [sellerCommissionOpen, setSellerCommissionOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState(null);
   const { unreadCount: notifCount } = useNotifications();
   const [query, setQuery] = useState('');
@@ -4057,7 +4407,6 @@ export default function App() {
     try {
       await createSellerArtist(payload);
       await marketplace.refreshCatalogue();
-      setSellerStudioOpen(false);
       showToast(ownedArtist ? 'Seller studio updated.' : 'Seller studio created.');
       return true;
     } catch (err) {
@@ -4071,7 +4420,6 @@ export default function App() {
     try {
       const created = await createSellerArtwork(payload);
       await marketplace.refreshCatalogue();
-      setSellerArtworkOpen(false);
       showToast('Artwork listed.');
       if (created?.id) goToArtwork(created.id);
       return true;
@@ -4086,7 +4434,6 @@ export default function App() {
     try {
       await createSellerCommission(payload);
       await marketplace.refreshCatalogue();
-      setSellerCommissionOpen(false);
       showToast('Commission board opened.');
       return true;
     } catch (err) {
@@ -4147,15 +4494,16 @@ export default function App() {
         <CatalogueLoadingState/>
       ) : (
         <>
-          {view === 'home' && <HomeView goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} query={query}/>}
-          {view === 'artwork' && selectedArtwork && <ArtworkView workId={selectedArtwork} goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} bids={bids} placeBid={placeBid} loadBidsForArtwork={marketplace.loadBidsForArtwork} onReport={openReport}/>}
+          {view === 'home' && <HomeView goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} goExplore={() => navigateToView('explore')} query={query}/>}
+          {view === 'explore' && <ExploreView goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} query={query}/>}
+          {view === 'artwork' && selectedArtwork && <ArtworkView workId={selectedArtwork} goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} bids={bids} placeBid={placeBid} loadBidsForArtwork={marketplace.loadBidsForArtwork} onReport={openReport} user={user} role={role} refreshCatalogue={marketplace.refreshCatalogue}/>}
           {view === 'artist' && selectedArtist && <ArtistView artistId={selectedArtist} goToArtwork={goToArtwork} follows={follows} toggleFollow={toggleFollow} likes={likes} toggleLike={toggleLike} onReport={openReport}/>}
           {view === 'commissions' && <CommissionsView goToArtist={goToArtist} role={role} onBookCommission={openCommissionBooking}/>}
           {view === 'feed' && <FeedView goToArtwork={goToArtwork} goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow} likes={likes} toggleLike={toggleLike}/>}
           {view === 'artists' && <ArtistsView goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow}/>}
           {view === 'profile' && <ProfileView user={user} profile={profile} role={role} updateProfile={updateProfile} marketplace={marketplace} setView={navigateToView}/>}
           {view === 'dashboard' && canViewDashboard && <BuyerDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} userBids={userBids} watchlist={watchlist} toggleWatch={toggleWatch} profile={profile} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} setView={navigateToView}/>}
-          {view === 'studio' && canViewStudio && <StudioDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} profile={profile} ownedArtist={ownedArtist} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} onCreateArtist={handleCreateSellerArtist} onOpenStudioModal={() => setSellerStudioOpen(true)} onOpenArtworkModal={() => setSellerArtworkOpen(true)} onOpenCommissionModal={() => setSellerCommissionOpen(true)}/>}
+          {view === 'studio' && canViewStudio && <StudioDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} profile={profile} ownedArtist={ownedArtist} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} onSubmitStudio={handleCreateSellerArtist} onSubmitArtwork={handleCreateSellerArtwork} onUploadArtworkImage={uploadArtworkImage} onSubmitCommission={handleCreateSellerCommission}/>}
           {view === 'admin' && canViewAdmin && <AdminDashboard goToArtist={goToArtist} trustState={trustState}/>}
         </>
       )}
@@ -4174,23 +4522,6 @@ export default function App() {
         onClose={closeCommissionThread}
         onSend={sendThreadMessage}
         sending={sendingThreadMessage}
-      />
-      <SellerStudioModal
-        open={sellerStudioOpen}
-        profile={profile}
-        ownedArtist={ownedArtist}
-        onClose={() => setSellerStudioOpen(false)}
-        onSubmit={handleCreateSellerArtist}
-      />
-      <SellerArtworkModal
-        open={sellerArtworkOpen}
-        onClose={() => setSellerArtworkOpen(false)}
-        onSubmit={handleCreateSellerArtwork}
-      />
-      <SellerCommissionModal
-        open={sellerCommissionOpen}
-        onClose={() => setSellerCommissionOpen(false)}
-        onSubmit={handleCreateSellerCommission}
       />
       <ReportModal
         target={reportTarget}

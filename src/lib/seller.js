@@ -1,6 +1,8 @@
 import { supabase } from './supabase';
 
 const SELLER_REQUEST_TIMEOUT_MS = 15000;
+const ARTWORK_IMAGE_BUCKET = 'artwork-images';
+const ARTWORK_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 
 function sellerErrorMessage(error) {
   const message = error?.message || 'Seller request failed.';
@@ -91,6 +93,17 @@ function parseTags(value) {
     .slice(0, 10);
 }
 
+function imageExtension(file) {
+  const byType = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+  };
+  const extension = String(file?.name || '').split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return byType[file?.type] || extension || 'jpg';
+}
+
 async function ownedArtistFor(userId) {
   const { data, error } = await withSellerTimeout(
     supabase
@@ -116,6 +129,39 @@ async function existingArtistFor(userId) {
   );
   if (error) throw new Error(sellerErrorMessage(error));
   return data;
+}
+
+export async function uploadArtworkImage(file) {
+  if (!file) return '';
+  if (!String(file.type || '').startsWith('image/')) {
+    throw new Error('Upload an image file for artwork media.');
+  }
+  if (file.size > ARTWORK_IMAGE_MAX_BYTES) {
+    throw new Error('Artwork images must be 10MB or smaller.');
+  }
+
+  const { data: { user } } = await withSellerTimeout(
+    supabase.auth.getUser(),
+    'Authentication check'
+  );
+  if (!user?.id) throw new Error('Authentication is required.');
+
+  const path = `${user.id}/${Date.now()}-${makeId('image')}.${imageExtension(file)}`;
+  const { error } = await withSellerTimeout(
+    supabase.storage
+      .from(ARTWORK_IMAGE_BUCKET)
+      .upload(path, file, {
+        cacheControl: '3600',
+        contentType: file.type || 'image/jpeg',
+        upsert: false,
+      }),
+    'Artwork image upload'
+  );
+
+  if (error) throw new Error(sellerErrorMessage(error));
+
+  const { data } = supabase.storage.from(ARTWORK_IMAGE_BUCKET).getPublicUrl(path);
+  return data?.publicUrl || '';
 }
 
 export async function createSellerArtist(payload) {
@@ -192,6 +238,7 @@ export async function createSellerArtwork(payload) {
         tags: parseTags(payload.tags),
         like_count: 0,
         format: String(payload.format || 'PNG / source').trim().slice(0, 80),
+        image_url: String(payload.imageUrl || '').trim() || null,
       })
       .select()
       .single(),

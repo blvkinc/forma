@@ -1,7 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext(null);
+const AUTH_RESTORE_TIMEOUT_MS = 8000;
+const SIGN_OUT_TIMEOUT_MS = 5000;
 
 const SELF_SERVICE_ROLES = new Set(['buyer', 'artist']);
 const PROFILE_UPDATE_FIELDS = new Set([
@@ -45,6 +47,43 @@ function safeProfileUpdates(updates) {
   return allowed;
 }
 
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([
+    promise.finally(() => window.clearTimeout(timeoutId)),
+    timeout,
+  ]);
+}
+
+function clearStoredSupabaseSession() {
+  if (typeof window === 'undefined') return;
+
+  const clearFromStorage = (storage) => {
+    if (!storage) return;
+
+    const keys = [];
+    for (let i = 0; i < storage.length; i += 1) {
+      const key = storage.key(i);
+      if (
+        key === 'supabase.auth.token' ||
+        key?.includes('supabase.auth.token') ||
+        (key?.startsWith('sb-') && key.endsWith('-auth-token'))
+      ) {
+        keys.push(key);
+      }
+    }
+
+    keys.forEach(key => storage.removeItem(key));
+  };
+
+  clearFromStorage(window.localStorage);
+  clearFromStorage(window.sessionStorage);
+}
+
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>');
@@ -55,6 +94,8 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);        // Supabase auth user
   const [profile, setProfile] = useState(null);   // public.profiles row
   const [loading, setLoading] = useState(true);   // true while restoring session
+  const profileRequestRef = useRef(0);
+  const activeUserIdRef = useRef(null);
 
   // ------------------------------------------------------------------
   // Fetch profile from public.profiles
@@ -89,6 +130,31 @@ export function AuthProvider({ children }) {
     return created;
   }, []);
 
+  const loadProfile = useCallback(async (authUser) => {
+    if (!authUser?.id) return null;
+    if (activeUserIdRef.current !== authUser.id) return null;
+
+    const requestId = profileRequestRef.current + 1;
+    profileRequestRef.current = requestId;
+    const fallback = profilePayloadFromUser(authUser);
+    if (activeUserIdRef.current === authUser.id) setProfile(fallback);
+
+    try {
+      const p = await fetchProfile(authUser);
+      const nextProfile = p || fallback;
+      if (profileRequestRef.current === requestId && activeUserIdRef.current === authUser.id) {
+        setProfile(nextProfile);
+      }
+      return nextProfile;
+    } catch (err) {
+      console.error('Profile fetch failed:', err);
+      if (profileRequestRef.current === requestId && activeUserIdRef.current === authUser.id) {
+        setProfile(fallback);
+      }
+      return fallback;
+    }
+  }, [fetchProfile]);
+
   // ------------------------------------------------------------------
   // On mount: restore session + listen for auth changes
   // ------------------------------------------------------------------
@@ -102,20 +168,24 @@ export function AuthProvider({ children }) {
         console.warn('Auth session check timed out after 8s');
         setLoading(false);
       }
-    }, 8000);
+    }, AUTH_RESTORE_TIMEOUT_MS);
 
     // 1. Check existing session
     supabase.auth.getSession()
       .then(async ({ data: { session } }) => {
         if (!mounted) return;
         if (session?.user) {
+          activeUserIdRef.current = session.user.id;
           setUser(session.user);
-          try {
-            const p = await fetchProfile(session.user);
-            if (mounted) setProfile(p);
-          } catch (err) {
-            console.error('Profile fetch failed:', err);
-          }
+          setProfile(profilePayloadFromUser(session.user));
+          window.setTimeout(() => {
+            if (mounted && activeUserIdRef.current === session.user.id) void loadProfile(session.user);
+          }, 0);
+        } else {
+          activeUserIdRef.current = null;
+          profileRequestRef.current += 1;
+          setUser(null);
+          setProfile(null);
         }
         loadingSettled = true;
         clearTimeout(timeout);
@@ -130,18 +200,19 @@ export function AuthProvider({ children }) {
 
     // 2. Listen for future changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         if (!mounted) return;
 
         if (session?.user) {
+          activeUserIdRef.current = session.user.id;
           setUser(session.user);
-          try {
-            const p = await fetchProfile(session.user);
-            if (mounted) setProfile(p);
-          } catch (err) {
-            console.error('Profile fetch on auth change failed:', err);
-          }
+          setProfile(profilePayloadFromUser(session.user));
+          window.setTimeout(() => {
+            if (mounted && activeUserIdRef.current === session.user.id) void loadProfile(session.user);
+          }, 0);
         } else {
+          activeUserIdRef.current = null;
+          profileRequestRef.current += 1;
           setUser(null);
           setProfile(null);
         }
@@ -153,7 +224,7 @@ export function AuthProvider({ children }) {
       clearTimeout(timeout);
       subscription?.unsubscribe?.();
     };
-  }, [fetchProfile]);
+  }, [loadProfile]);
 
   // ------------------------------------------------------------------
   // Sign Up
@@ -175,8 +246,10 @@ export function AuthProvider({ children }) {
     if (error) throw error;
 
     if (data.session?.user) {
+      activeUserIdRef.current = data.session.user.id;
       setUser(data.session.user);
-      setProfile(await fetchProfile(data.session.user));
+      setProfile(profilePayloadFromUser(data.session.user));
+      void loadProfile(data.session.user);
     }
 
     // If email confirmation is required, data.user exists but session may be null
@@ -194,8 +267,10 @@ export function AuthProvider({ children }) {
 
     if (error) throw error;
     if (data.user) {
+      activeUserIdRef.current = data.user.id;
       setUser(data.user);
-      setProfile(await fetchProfile(data.user));
+      setProfile(profilePayloadFromUser(data.user));
+      void loadProfile(data.user);
     }
     return data;
   };
@@ -204,10 +279,22 @@ export function AuthProvider({ children }) {
   // Sign Out
   // ------------------------------------------------------------------
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    activeUserIdRef.current = null;
+    profileRequestRef.current += 1;
     setUser(null);
     setProfile(null);
+
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.signOut({ scope: 'local' }),
+        SIGN_OUT_TIMEOUT_MS,
+        'Sign out timed out locally.'
+      );
+      if (error) throw error;
+    } catch (err) {
+      console.warn('Supabase sign out did not finish cleanly; clearing local session.', err);
+      clearStoredSupabaseSession();
+    }
   };
 
   // ------------------------------------------------------------------

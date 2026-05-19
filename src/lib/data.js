@@ -26,6 +26,11 @@ function transformArtwork(row) {
     tags: row.tags || [],
     likes: row.like_count,
     format: row.format,
+    imageUrl: row.image_url,
+    authenticityStatus: row.authenticity_status || 'clear',
+    aiVoteCount: Number(row.ai_vote_count || 0),
+    authenticityNote: row.authenticity_note,
+    authenticityUpdatedAt: row.authenticity_updated_at,
     createdAt: row.created_at,
   };
 }
