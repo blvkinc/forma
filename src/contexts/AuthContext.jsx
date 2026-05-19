@@ -94,6 +94,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);        // Supabase auth user
   const [profile, setProfile] = useState(null);   // public.profiles row
   const [loading, setLoading] = useState(true);   // true while restoring session
+  const [recoveryMode, setRecoveryMode] = useState(false); // password-recovery link opened
   const profileRequestRef = useRef(0);
   const activeUserIdRef = useRef(null);
 
@@ -202,6 +203,10 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (!mounted) return;
+
+        if (event === 'PASSWORD_RECOVERY') {
+          setRecoveryMode(true);
+        }
 
         if (session?.user) {
           activeUserIdRef.current = session.user.id;
@@ -318,6 +323,58 @@ export function AuthProvider({ children }) {
   };
 
   // ------------------------------------------------------------------
+  // Password reset
+  // ------------------------------------------------------------------
+  const resetPassword = async (email) => {
+    const clean = String(email || '').trim();
+    if (!clean) throw new Error('Enter your account email.');
+    const redirectTo = typeof window !== 'undefined'
+      ? `${window.location.origin}${window.location.pathname}`
+      : undefined;
+    const { error } = await supabase.auth.resetPasswordForEmail(clean, { redirectTo });
+    if (error) throw error;
+    return true;
+  };
+
+  const updatePassword = async (newPassword) => {
+    const clean = String(newPassword || '');
+    if (clean.length < 10) throw new Error('Password must be at least 10 characters.');
+    const { error } = await supabase.auth.updateUser({ password: clean });
+    if (error) throw error;
+    setRecoveryMode(false);
+    return true;
+  };
+
+  const updateEmail = async (newEmail) => {
+    const clean = String(newEmail || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) throw new Error('Enter a valid email.');
+    const { error } = await supabase.auth.updateUser({ email: clean });
+    if (error) throw error;
+    return true;
+  };
+
+  const deleteAccount = async () => {
+    const { error } = await supabase.rpc('delete_own_account');
+    if (error) throw error;
+    await signOut();
+    return true;
+  };
+
+  const clearRecoveryMode = () => setRecoveryMode(false);
+
+  const signInWithProvider = async (provider = 'google') => {
+    const redirectTo = typeof window !== 'undefined'
+      ? `${window.location.origin}${window.location.pathname}`
+      : undefined;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo },
+    });
+    if (error) throw error;
+    return true;
+  };
+
+  // ------------------------------------------------------------------
   // Derived
   // ------------------------------------------------------------------
   const effectiveProfile = profile || (user ? profilePayloadFromUser(user) : null);
@@ -334,6 +391,13 @@ export function AuthProvider({ children }) {
     signIn,
     signOut,
     updateProfile,
+    resetPassword,
+    updatePassword,
+    updateEmail,
+    deleteAccount,
+    recoveryMode,
+    clearRecoveryMode,
+    signInWithProvider,
   };
 
   return (

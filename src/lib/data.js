@@ -31,6 +31,7 @@ function transformArtwork(row) {
     aiVoteCount: Number(row.ai_vote_count || 0),
     authenticityNote: row.authenticity_note,
     authenticityUpdatedAt: row.authenticity_updated_at,
+    takenDown: row.taken_down === true,
     createdAt: row.created_at,
   };
 }
@@ -47,6 +48,7 @@ function transformArtist(row) {
     verified: row.verified,
     accent: row.accent,
     profileId: row.profile_id,
+    suspended: row.suspended === true,
   };
 }
 
@@ -73,6 +75,8 @@ function transformFeedPost(row) {
     artwork: row.artwork_id,
     likes: row.like_count,
     comments: row.comment_count,
+    saves: row.save_count || 0,
+    createdAt: row.created_at,
   };
 }
 

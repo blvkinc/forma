@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { fetchArtists, fetchArtworks, fetchCommissions, fetchFeedPosts } from '../lib/data';
-import { minimumNextBid, validateBid } from '../lib/domain';
+import { validateBid } from '../lib/domain';
 import {
   fetchUserLikes, toggleLike as apiToggleLike,
   fetchUserFollows, toggleFollow as apiToggleFollow,
@@ -9,6 +9,14 @@ import {
   fetchBidsForArtwork, placeBid as apiPlaceBid,
   fetchUserBids,
 } from '../lib/interactions';
+import { fetchUserPurchases, recordArtworkPurchase as apiRecordArtworkPurchase } from '../lib/purchases';
+import { fetchUserAuctionSettlements } from '../lib/auctions';
+import {
+  fetchUserPostLikes,
+  fetchUserSavedPosts,
+  togglePostLike as apiTogglePostLike,
+  toggleSavedPost as apiToggleSavedPost,
+} from '../lib/social';
 
 const CATALOGUE_LOAD_TIMEOUT_MS = 30000;
 
@@ -23,40 +31,39 @@ function withTimeout(promise, label, ms = CATALOGUE_LOAD_TIMEOUT_MS) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
-// ============================================================
-// useMarketplace — replaces hardcoded mock data + useStoredState
-// ============================================================
 export function useMarketplace() {
   const { user, profile } = useAuth();
   const userId = user?.id;
 
-  // --- Catalogue state ---
   const [artists, setArtists] = useState([]);
   const [artworks, setArtworks] = useState([]);
   const [commissions, setCommissions] = useState([]);
   const [feedPosts, setFeedPosts] = useState([]);
 
-  // --- User interaction state ---
   const [likes, setLikes] = useState({});
   const [follows, setFollows] = useState({});
   const [watchlist, setWatchlist] = useState({});
-  const [bids, setBids] = useState({}); // { artworkId: [bid, ...] }
+  const [postLikes, setPostLikes] = useState({});
+  const [savedPosts, setSavedPosts] = useState({});
+  const [bids, setBids] = useState({});
   const [userBids, setUserBids] = useState([]);
+  const [purchases, setPurchases] = useState([]);
+  const [auctionSettlements, setAuctionSettlements] = useState([]);
 
-  // --- UI state ---
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  // ------------------------------------------------------------------
-  // Initial data load
-  // ------------------------------------------------------------------
+
   useEffect(() => {
-    // If not authenticated yet, don't try to load — but also don't stay in loading state
     if (!userId) {
       setLikes({});
       setFollows({});
       setWatchlist({});
+      setPostLikes({});
+      setSavedPosts({});
       setBids({});
       setUserBids([]);
+      setPurchases([]);
+      setAuctionSettlements([]);
       setLoading(false);
       return;
     }
@@ -85,12 +92,20 @@ export function useMarketplace() {
           withTimeout(fetchUserFollows(userId), 'Follows load', 8000),
           withTimeout(fetchUserWatchlist(userId), 'Watchlist load', 8000),
           withTimeout(fetchUserBids(userId), 'Bid history load', 8000),
+          withTimeout(fetchUserPurchases(userId), 'Acquisitions load', 8000),
+          withTimeout(fetchUserPostLikes(userId), 'Feed likes load', 8000),
+          withTimeout(fetchUserSavedPosts(userId), 'Saved posts load', 8000),
+          withTimeout(fetchUserAuctionSettlements(userId), 'Auction invoices load', 8000),
         ]);
 
         const likesData = userInteractionResults[0].status === 'fulfilled' ? userInteractionResults[0].value : {};
         const followsData = userInteractionResults[1].status === 'fulfilled' ? userInteractionResults[1].value : {};
         const watchData = userInteractionResults[2].status === 'fulfilled' ? userInteractionResults[2].value : {};
         const bidData = userInteractionResults[3].status === 'fulfilled' ? userInteractionResults[3].value : [];
+        const purchaseData = userInteractionResults[4].status === 'fulfilled' ? userInteractionResults[4].value : [];
+        const postLikeData = userInteractionResults[5].status === 'fulfilled' ? userInteractionResults[5].value : {};
+        const savedPostData = userInteractionResults[6].status === 'fulfilled' ? userInteractionResults[6].value : {};
+        const settlementData = userInteractionResults[7].status === 'fulfilled' ? userInteractionResults[7].value : [];
 
         userInteractionResults.forEach((result) => {
           if (result.status === 'rejected') {
@@ -107,7 +122,11 @@ export function useMarketplace() {
         setLikes(likesData);
         setFollows(followsData);
         setWatchlist(watchData);
+        setPostLikes(postLikeData);
+        setSavedPosts(savedPostData);
         setUserBids(bidData);
+        setPurchases(purchaseData);
+        setAuctionSettlements(settlementData);
       } catch (err) {
         console.error('Failed to load marketplace data:', err);
         if (!cancelled) setError(err.message);
@@ -121,9 +140,6 @@ export function useMarketplace() {
     return () => { cancelled = true; };
   }, [userId]);
 
-  // ------------------------------------------------------------------
-  // Helpers (match existing interface)
-  // ------------------------------------------------------------------
   const artistById = useCallback(
     (id) => artists.find(a => a.id === id) || { id, name: 'Unknown', handle: '?', accent: '#0E0E0C' },
     [artists]
@@ -134,43 +150,41 @@ export function useMarketplace() {
     [artworks]
   );
 
-  // ------------------------------------------------------------------
-  // Interaction handlers (optimistic UI + Supabase sync)
-  // ------------------------------------------------------------------
   const handleToggleLike = useCallback(async (artworkId) => {
-    if (!userId) return;
+    if (!userId) return false;
+    const wasLiked = !!likes[artworkId];
 
-    // Optimistic update
     setLikes(prev => {
       const next = { ...prev };
-      if (next[artworkId]) {
-        delete next[artworkId];
-      } else {
-        next[artworkId] = true;
-      }
+      if (next[artworkId]) delete next[artworkId];
+      else next[artworkId] = true;
       return next;
     });
+    setArtworks(prev => prev.map(work => work.id === artworkId
+      ? { ...work, likes: Math.max(0, Number(work.likes || 0) + (wasLiked ? -1 : 1)) }
+      : work
+    ));
 
     try {
-      await apiToggleLike(userId, artworkId);
+      return await apiToggleLike(userId, artworkId);
     } catch (err) {
       console.error('Failed to toggle like:', err);
-      // Revert on failure
       setLikes(prev => {
         const next = { ...prev };
-        if (next[artworkId]) {
-          delete next[artworkId];
-        } else {
-          next[artworkId] = true;
-        }
+        if (wasLiked) next[artworkId] = true;
+        else delete next[artworkId];
         return next;
       });
+      setArtworks(prev => prev.map(work => work.id === artworkId
+        ? { ...work, likes: Math.max(0, Number(work.likes || 0) + (wasLiked ? 1 : -1)) }
+        : work
+      ));
+      return wasLiked;
     }
-  }, [userId]);
+  }, [userId, likes]);
 
   const handleToggleFollow = useCallback(async (artistId) => {
-    if (!userId) return;
-
+    if (!userId) return false;
     const wasFollowing = !!follows[artistId];
 
     setFollows(prev => {
@@ -179,9 +193,13 @@ export function useMarketplace() {
       else next[artistId] = true;
       return next;
     });
+    setArtists(prev => prev.map(artist => artist.id === artistId
+      ? { ...artist, followers: Math.max(0, Number(artist.followers || 0) + (wasFollowing ? -1 : 1)) }
+      : artist
+    ));
 
     try {
-      await apiToggleFollow(userId, artistId);
+      return await apiToggleFollow(userId, artistId);
     } catch (err) {
       console.error('Failed to toggle follow:', err);
       setFollows(prev => {
@@ -190,14 +208,16 @@ export function useMarketplace() {
         else delete next[artistId];
         return next;
       });
+      setArtists(prev => prev.map(artist => artist.id === artistId
+        ? { ...artist, followers: Math.max(0, Number(artist.followers || 0) + (wasFollowing ? 1 : -1)) }
+        : artist
+      ));
+      return wasFollowing;
     }
-
-    return !wasFollowing;
   }, [userId, follows]);
 
   const handleToggleWatch = useCallback(async (artworkId) => {
-    if (!userId) return;
-
+    if (!userId) return false;
     const wasWatching = !!watchlist[artworkId];
 
     setWatchlist(prev => {
@@ -206,9 +226,13 @@ export function useMarketplace() {
       else next[artworkId] = true;
       return next;
     });
+    setArtworks(prev => prev.map(work => work.id === artworkId
+      ? { ...work, watchers: Math.max(0, Number(work.watchers || 0) + (wasWatching ? -1 : 1)) }
+      : work
+    ));
 
     try {
-      await apiToggleWatch(userId, artworkId);
+      return await apiToggleWatch(userId, artworkId);
     } catch (err) {
       console.error('Failed to toggle watchlist:', err);
       setWatchlist(prev => {
@@ -217,10 +241,79 @@ export function useMarketplace() {
         else delete next[artworkId];
         return next;
       });
+      setArtworks(prev => prev.map(work => work.id === artworkId
+        ? { ...work, watchers: Math.max(0, Number(work.watchers || 0) + (wasWatching ? 1 : -1)) }
+        : work
+      ));
+      return wasWatching;
     }
-
-    return !wasWatching;
   }, [userId, watchlist]);
+
+  const handleTogglePostLike = useCallback(async (postId) => {
+    if (!userId) return false;
+    const wasLiked = !!postLikes[postId];
+
+    setPostLikes(prev => {
+      const next = { ...prev };
+      if (next[postId]) delete next[postId];
+      else next[postId] = true;
+      return next;
+    });
+    setFeedPosts(prev => prev.map(post => post.id === postId
+      ? { ...post, likes: Math.max(0, Number(post.likes || 0) + (wasLiked ? -1 : 1)) }
+      : post
+    ));
+
+    try {
+      return await apiTogglePostLike(userId, postId);
+    } catch (err) {
+      console.error('Failed to toggle feed like:', err);
+      setPostLikes(prev => {
+        const next = { ...prev };
+        if (wasLiked) next[postId] = true;
+        else delete next[postId];
+        return next;
+      });
+      setFeedPosts(prev => prev.map(post => post.id === postId
+        ? { ...post, likes: Math.max(0, Number(post.likes || 0) + (wasLiked ? 1 : -1)) }
+        : post
+      ));
+      return wasLiked;
+    }
+  }, [userId, postLikes]);
+
+  const handleToggleSavedPost = useCallback(async (postId) => {
+    if (!userId) return false;
+    const wasSaved = !!savedPosts[postId];
+
+    setSavedPosts(prev => {
+      const next = { ...prev };
+      if (next[postId]) delete next[postId];
+      else next[postId] = true;
+      return next;
+    });
+    setFeedPosts(prev => prev.map(post => post.id === postId
+      ? { ...post, saves: Math.max(0, Number(post.saves || 0) + (wasSaved ? -1 : 1)) }
+      : post
+    ));
+
+    try {
+      return await apiToggleSavedPost(userId, postId);
+    } catch (err) {
+      console.error('Failed to toggle saved feed post:', err);
+      setSavedPosts(prev => {
+        const next = { ...prev };
+        if (wasSaved) next[postId] = true;
+        else delete next[postId];
+        return next;
+      });
+      setFeedPosts(prev => prev.map(post => post.id === postId
+        ? { ...post, saves: Math.max(0, Number(post.saves || 0) + (wasSaved ? 1 : -1)) }
+        : post
+      ));
+      return wasSaved;
+    }
+  }, [userId, savedPosts]);
 
   const handlePlaceBid = useCallback(async (artworkId, amount) => {
     if (!userId) return { error: 'Authentication is required to place a bid.' };
@@ -228,20 +321,15 @@ export function useMarketplace() {
     const work = artworkById(artworkId);
     const displayName = profile?.display_name || profile?.email?.split('@')[0] || 'You';
 
-    // Validation using SRS rules (FR-AUC-003)
     const validation = validateBid(amount, work.currentBid);
-    if (!validation.valid) {
-      return { error: validation.error };
-    }
+    if (!validation.valid) return { error: validation.error };
 
-    // Optimistic update
     const newBid = { user: displayName, amount, when: 'just now' };
     setBids(prev => ({
       ...prev,
       [artworkId]: [newBid, ...(prev[artworkId] || [])],
     }));
 
-    // Also update the artwork's current bid optimistically
     setArtworks(prev => prev.map(w =>
       w.id === artworkId
         ? { ...w, currentBid: amount, bids: w.bids + 1 }
@@ -263,7 +351,6 @@ export function useMarketplace() {
       return { success: true, bid: saved?.bid, artwork: saved?.artwork };
     } catch (err) {
       console.error('Failed to place bid:', err);
-      // Revert
       setBids(prev => {
         const next = { ...prev };
         if (next[artworkId]) next[artworkId] = next[artworkId].slice(1);
@@ -278,7 +365,6 @@ export function useMarketplace() {
     }
   }, [userId, profile, artworkById]);
 
-  // Load bids for a specific artwork on demand
   const loadBidsForArtwork = useCallback(async (artworkId) => {
     try {
       const bidData = await fetchBidsForArtwork(artworkId);
@@ -298,6 +384,40 @@ export function useMarketplace() {
       console.error('Failed to refresh user bids:', err);
       return [];
     }
+  }, [userId]);
+
+  const refreshPurchases = useCallback(async () => {
+    if (!userId) return [];
+    try {
+      const purchaseData = await withTimeout(fetchUserPurchases(userId), 'Acquisitions refresh', 10000);
+      setPurchases(purchaseData);
+      return purchaseData;
+    } catch (err) {
+      console.error('Failed to refresh acquisitions:', err);
+      return [];
+    }
+  }, [userId]);
+
+  const refreshAuctionSettlements = useCallback(async () => {
+    if (!userId) return [];
+    try {
+      const settlementData = await withTimeout(fetchUserAuctionSettlements(userId), 'Auction invoices refresh', 10000);
+      setAuctionSettlements(settlementData);
+      return settlementData;
+    } catch (err) {
+      console.error('Failed to refresh auction invoices:', err);
+      return [];
+    }
+  }, [userId]);
+
+  const recordArtworkPurchase = useCallback(async (artworkId, amount) => {
+    if (!userId) return { error: 'Authentication is required.' };
+    const result = await apiRecordArtworkPurchase(userId, artworkId, amount);
+    if (result?.error) return result;
+    if (result?.data) {
+      setPurchases(prev => [result.data, ...prev.filter(p => p.id !== result.data.id && p.artworkId !== result.data.artworkId)]);
+    }
+    return result;
   }, [userId]);
 
   const refreshCommissions = useCallback(async () => {
@@ -337,34 +457,34 @@ export function useMarketplace() {
   }, []);
 
   return {
-    // Catalogue data
     artists,
     artworks,
     commissions,
     feedPosts,
-
-    // Helpers
     artistById,
     artworkById,
-
-    // User interactions
     likes,
     follows,
     watchlist,
+    postLikes,
+    savedPosts,
     bids,
     userBids,
-
-    // Action handlers
+    purchases,
+    auctionSettlements,
     toggleLike: handleToggleLike,
     toggleFollow: handleToggleFollow,
     toggleWatch: handleToggleWatch,
+    togglePostLike: handleTogglePostLike,
+    toggleSavedPost: handleToggleSavedPost,
     placeBid: handlePlaceBid,
+    recordArtworkPurchase,
     loadBidsForArtwork,
     refreshUserBids,
+    refreshPurchases,
+    refreshAuctionSettlements,
     refreshCommissions,
     refreshCatalogue,
-
-    // Status
     loading,
     error,
   };

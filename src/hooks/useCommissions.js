@@ -74,9 +74,14 @@ export function useCommissions(artistId = null) {
     return result;
   }, [userId, role]);
 
-  // Transition a booking state
+  // Transition a booking state.
+  // Sellers drive the production lifecycle; buyers may accept delivery,
+  // open a dispute, or cancel their own booking.
+  const BUYER_TRANSITIONS = ['DISPUTED', 'ACCEPTED', 'CANCELLED'];
   const handleTransitionBooking = useCallback(async (bookingId, newStatus) => {
-    if (role !== 'artist') return { error: 'Use a seller account to update commission status.' };
+    if (role !== 'artist' && !(role === 'buyer' && BUYER_TRANSITIONS.includes(newStatus))) {
+      return { error: 'You cannot make this commission update.' };
+    }
 
     const result = await transitionBooking(bookingId, newStatus);
     if (result.error) return result;
@@ -89,7 +94,7 @@ export function useCommissions(artistId = null) {
     setBuyerBookings(updateList);
     setArtistBookings(updateList);
     return result;
-  }, []);
+  }, [role]);
 
   // Load thread messages
   const openThread = useCallback(async (bookingId) => {

@@ -8,6 +8,14 @@
 // Auction: Bid Increment (FR-AUC-003)
 // Minimum bid increment = max($20, 5% of current top bid)
 // rounded to 2 significant figures.
+//
+// SINGLE SOURCE OF TRUTH: this formula is mirrored server-side by
+// public.minimum_next_bid() in
+// supabase/migrations/010_harden_auction_bidding.sql, which is the
+// authoritative guard enforced by a BEFORE INSERT trigger on bids.
+// If you change the math here, change it there too. The parity test
+// in domain.test.js ("matches the SQL minimum_next_bid() formula")
+// fails the build if the two drift apart.
 // -------------------------------------------------
 export function minimumBidIncrement(currentBid) {
   const percentBased = currentBid * 0.05;

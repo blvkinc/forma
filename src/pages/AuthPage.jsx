@@ -3,8 +3,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { ArrowRight, Eye, EyeOff, Check, AlertCircle, Mail } from 'lucide-react';
 
 export default function AuthPage() {
-  const { signIn, signUp } = useAuth();
-  const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
+  const { signIn, signUp, resetPassword, signInWithProvider } = useAuth();
+  const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'reset'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -13,10 +13,12 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [confirmationSent, setConfirmationSent] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   const reset = () => {
     setError('');
     setConfirmationSent(false);
+    setResetSent(false);
   };
 
   const switchMode = (m) => {
@@ -30,7 +32,10 @@ export default function AuthPage() {
     setLoading(true);
 
     try {
-      if (mode === 'signup') {
+      if (mode === 'reset') {
+        await resetPassword(email);
+        setResetSent(true);
+      } else if (mode === 'signup') {
         if (!displayName.trim()) {
           throw new Error('Display name is required.');
         }
@@ -76,6 +81,32 @@ export default function AuthPage() {
             </p>
             <button
               onClick={() => { switchMode('signin'); setConfirmationSent(false); }}
+              className="swiss-btn mt-8 mx-auto"
+            >
+              Back to sign in <ArrowRight size={12} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Reset link sent screen ----
+  if (resetSent) {
+    return (
+      <div className="swiss-app min-h-screen flex items-center justify-center" style={{ backgroundColor: 'var(--bg)' }}>
+        <div className="w-full max-w-[480px] px-6">
+          <div className="text-center">
+            <div className="w-16 h-16 mx-auto hair-all flex items-center justify-center bg-[var(--card)]">
+              <Mail size={24} className="text-[var(--accent)]" />
+            </div>
+            <h1 className="display text-[42px] mt-8 leading-[0.95]">Check your email.</h1>
+            <p className="text-[15px] text-[var(--ink-2)] mt-4 leading-relaxed max-w-[360px] mx-auto">
+              If an account exists for <strong className="text-[var(--ink)]">{email}</strong>, we sent a
+              password reset link. Open it to choose a new password.
+            </p>
+            <button
+              onClick={() => { switchMode('signin'); }}
               className="swiss-btn mt-8 mx-auto"
             >
               Back to sign in <ArrowRight size={12} />
@@ -138,22 +169,26 @@ export default function AuthPage() {
 
             {/* Section label */}
             <div className="label mb-6 flex items-center gap-3">
-              <span>№ {mode === 'signin' ? '01' : '02'} — {mode === 'signin' ? 'Sign in' : 'Create account'}</span>
+              <span>№ {mode === 'signin' ? '01' : mode === 'signup' ? '02' : '03'} — {mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Reset password'}</span>
               <span className="w-8 hair-t" />
             </div>
 
             <h1 className="display text-[48px] leading-[0.92]">
               {mode === 'signin' ? (
                 <>Welcome<br />back.</>
-              ) : (
+              ) : mode === 'signup' ? (
                 <>Join the<br />index.</>
+              ) : (
+                <>Reset<br />password.</>
               )}
             </h1>
 
             <p className="text-[15px] text-[var(--ink-2)] mt-4 leading-relaxed">
               {mode === 'signin'
                 ? 'Sign in with your email and password.'
-                : 'Create an account to bid on auctions, book commissions, or open a shop.'}
+                : mode === 'signup'
+                  ? 'Create an account to bid on auctions, book commissions, or open a shop.'
+                  : 'Enter your account email and we will send a password reset link.'}
             </p>
 
             {/* Error banner */}
@@ -198,6 +233,7 @@ export default function AuthPage() {
               </div>
 
               {/* Password */}
+              {mode !== 'reset' && (
               <div>
                 <label htmlFor="auth-password" className="label mb-2 block">Password</label>
                 <div className="relative">
@@ -222,7 +258,19 @@ export default function AuthPage() {
                     {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
+                {mode === 'signin' && (
+                  <div className="mt-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => switchMode('reset')}
+                      className="mono text-[11px] uppercase tracking-[0.1em] text-[var(--muted)] hover:text-[var(--ink)] underline-hover"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                )}
               </div>
+              )}
 
               {/* Role selector (signup only) */}
               {mode === 'signup' && (
@@ -281,16 +329,38 @@ export default function AuthPage() {
                 {loading ? (
                   <span className="flex items-center gap-2">
                     <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
-                    {mode === 'signin' ? 'Signing in…' : 'Creating account…'}
+                    {mode === 'signin' ? 'Signing in…' : mode === 'signup' ? 'Creating account…' : 'Sending link…'}
                   </span>
                 ) : (
                   <>
-                    {mode === 'signin' ? 'Sign in' : 'Create account'}
+                    {mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Send reset link'}
                     <ArrowRight size={12} />
                   </>
                 )}
               </button>
             </form>
+
+            {mode !== 'reset' && (
+              <div className="mt-6">
+                <div className="flex items-center gap-3 mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
+                  <span className="flex-1 hair-t" /> or <span className="flex-1 hair-t" />
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    reset();
+                    try {
+                      await signInWithProvider('google');
+                    } catch (err) {
+                      setError(err.message || 'Google sign-in is not available.');
+                    }
+                  }}
+                  className="swiss-btn ghost w-full justify-center py-3.5 mt-4"
+                >
+                  Continue with Google <ArrowRight size={12} />
+                </button>
+              </div>
+            )}
 
             {/* Mode switch */}
             <div className="mt-8 pt-6 hair-t text-[14px] text-center">
@@ -302,6 +372,16 @@ export default function AuthPage() {
                     className="text-[var(--ink)] font-medium underline-hover"
                   >
                     Create one
+                  </button>
+                </span>
+              ) : mode === 'reset' ? (
+                <span className="text-[var(--muted)]">
+                  Remembered it?{' '}
+                  <button
+                    onClick={() => switchMode('signin')}
+                    className="text-[var(--ink)] font-medium underline-hover"
+                  >
+                    Sign in
                   </button>
                 </span>
               ) : (

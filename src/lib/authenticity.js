@@ -152,3 +152,29 @@ export async function submitArtworkProof(artwork, proofUrl, notes) {
   if (error) throw error;
   return transformProof(data);
 }
+
+// -------------------------------------------------
+// Rule 2: per-artwork authenticity seal.
+// RLS on public.artwork_authenticity_seal returns a row ONLY when
+// the caller is the owning artist or a buyer of the artwork.
+// Anyone else gets no row → null (hash stays private).
+// -------------------------------------------------
+export async function fetchArtworkAuthenticitySeal(artworkId) {
+  const { data, error } = await supabase
+    .from('artwork_authenticity_seal')
+    .select('artwork_id, authenticity_hash, issued_at')
+    .eq('artwork_id', artworkId)
+    .maybeSingle();
+
+  if (error) {
+    // A blocked/empty read is expected for non-owner/non-buyer.
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  if (!data) return null;
+  return {
+    artworkId: data.artwork_id,
+    hash: data.authenticity_hash,
+    issuedAt: data.issued_at,
+  };
+}

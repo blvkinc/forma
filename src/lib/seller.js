@@ -249,6 +249,92 @@ export async function createSellerArtwork(payload) {
   return data;
 }
 
+const FEED_POST_TYPES = new Set(['drop', 'process', 'note', 'sold']);
+
+export async function createSellerFeedPost(payload) {
+  const apiData = await devSellerApi('/api/seller-feed-posts', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  if (apiData) return apiData;
+
+  const { data: { user } } = await withSellerTimeout(
+    supabase.auth.getUser(),
+    'Authentication check'
+  );
+  if (!user?.id) throw new Error('Authentication is required.');
+  const artist = await ownedArtistFor(user.id);
+
+  const body = String(payload.body || '').trim();
+  if (body.length < 2) throw new Error('Write something before posting.');
+  const type = FEED_POST_TYPES.has(payload.type) ? payload.type : 'note';
+
+  const { data, error } = await withSellerTimeout(
+    supabase
+      .from('feed_posts')
+      .insert({
+        id: payload.id || makeId('post'),
+        artist_id: artist.id,
+        type,
+        posted_at: 'just now',
+        body: body.slice(0, 1200),
+        artwork_id: payload.artworkId || null,
+        like_count: 0,
+        comment_count: 0,
+      })
+      .select()
+      .single(),
+    'Feed post'
+  );
+
+  if (error) throw new Error(sellerErrorMessage(error));
+  return data;
+}
+
+export async function updateSellerFeedPost(postId, payload) {
+  const apiData = await devSellerApi(`/api/seller-feed-posts/${encodeURIComponent(postId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+  if (apiData) return apiData;
+
+  const body = String(payload.body || '').trim();
+  if (body.length < 2) throw new Error('Write something before saving.');
+  const updates = { body: body.slice(0, 1200) };
+  if (payload.type && FEED_POST_TYPES.has(payload.type)) updates.type = payload.type;
+
+  const { data, error } = await withSellerTimeout(
+    supabase
+      .from('feed_posts')
+      .update(updates)
+      .eq('id', postId)
+      .select()
+      .single(),
+    'Feed post update'
+  );
+
+  if (error) throw new Error(sellerErrorMessage(error));
+  return data;
+}
+
+export async function deleteSellerFeedPost(postId) {
+  const apiData = await devSellerApi(`/api/seller-feed-posts/${encodeURIComponent(postId)}`, {
+    method: 'DELETE',
+  });
+  if (apiData) return apiData;
+
+  const { error } = await withSellerTimeout(
+    supabase
+      .from('feed_posts')
+      .delete()
+      .eq('id', postId),
+    'Feed post deletion'
+  );
+
+  if (error) throw new Error(sellerErrorMessage(error));
+  return true;
+}
+
 export async function createSellerCommission(payload) {
   const apiData = await devSellerApi('/api/seller-commissions', {
     method: 'POST',

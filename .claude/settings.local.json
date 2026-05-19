@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"C:\\\\Users\\\\Blvk Inc\\\\Desktop\\\\forma\" ls-files)",
+      "Bash(node --test)",
+      "Bash(npx vite *)",
+      "Bash(npm run *)",
+      "Bash(npm test *)"
+    ]
+  }
+}
