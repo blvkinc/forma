@@ -16,6 +16,7 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
   const [application, setApplication] = useState(null);
   const [applicationLoading, setApplicationLoading] = useState(false);
   const [applicationError, setApplicationError] = useState('');
+  const [commissionNotice, setCommissionNotice] = useState('');
   const sellerVerified = profile?.verified === true;
   const canManageStudio = sellerVerified && !!ownedArtist;
   const canCreateStudio = sellerVerified;
@@ -82,6 +83,17 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
     if (!profile?.id) throw new Error('Authentication is required.');
     const saved = await submitSellerApplication(profile.id, payload);
     setApplication(saved);
+    return true;
+  };
+
+  const transitionSellerBooking = async (booking, status) => {
+    setCommissionNotice('');
+    const result = await commissionState.transitionBooking(booking.id, status);
+    if (result?.error) {
+      setCommissionNotice(result.error);
+      return false;
+    }
+    setCommissionNotice(`Commission moved to ${commissionState.stateLabel(status).toLowerCase()}.`);
     return true;
   };
 
@@ -347,6 +359,11 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
 
       {tab === 'commissions' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {commissionNotice && (
+            <div className="lg:col-span-2 hair-all p-3 bg-[var(--bg-2)] text-[13px] text-[var(--muted)]">
+              {commissionNotice}
+            </div>
+          )}
           {ownedCommissions.map(c => {
             const remaining = Math.max(0, c.slots - c.taken);
             return (
@@ -387,11 +404,17 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
               <p className="text-[13px] text-[var(--ink-2)] mt-4 leading-relaxed">{booking.briefText || 'No brief submitted yet.'}</p>
               <div className="flex gap-2 mt-5">
                 <button onClick={() => onOpenCommissionThread(booking)} className="swiss-btn ghost">Open thread <ArrowRight size={12}/></button>
-                {commissionState.nextStates(booking.status).map(next => (
-                  <button key={next} onClick={() => commissionState.transitionBooking(booking.id, next)} className="swiss-btn">
-                    {commissionState.stateLabel(next)}
-                  </button>
-                ))}
+                {booking.status === 'DISPUTED' ? (
+                  <span className="hair-all px-3 py-2 mono text-[10px] uppercase tracking-[0.1em] text-[var(--muted)]">
+                    Admin review
+                  </span>
+                ) : (
+                  commissionState.nextStates(booking.status).map(next => (
+                    <button key={next} onClick={() => transitionSellerBooking(booking, next)} className="swiss-btn">
+                      {commissionState.stateLabel(next)}
+                    </button>
+                  ))
+                )}
               </div>
             </div>
           ))}

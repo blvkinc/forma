@@ -229,15 +229,20 @@ export default function App() {
   };
 
   const confirmCommissionBooking = async (briefText) => {
-    if (!bookingCommission) return;
+    if (!bookingCommission) return { error: 'No commission selected.' };
     const result = await commissionState.bookCommission(bookingCommission, briefText);
     if (result?.error) {
       showToast(result.error, 3000);
-      return;
+      return result;
     }
     setBookingCommission(null);
-    showToast('Commission slot booked.');
     await marketplace.refreshCommissions();
+    if (result?.data) {
+      setThreadBooking(result.data);
+      await commissionState.openThread(result.data.id);
+    }
+    showToast('Commission slot booked. Project thread opened.');
+    return result;
   };
 
   const openCommissionThread = async (booking) => {
@@ -458,7 +463,7 @@ export default function App() {
           {view === 'home' && <HomeView goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} goExplore={() => navigateToView('explore')} goStudio={() => navigateToView('studio')}/>}
           {view === 'explore' && <ExploreView goToArtwork={goToArtwork} goToArtist={goToArtist} goFeed={() => navigateToView('feed')} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} query={query}/>}
           {view === 'artwork' && selectedArtwork && <ArtworkView workId={selectedArtwork} goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} bids={bids} placeBid={placeBid} purchases={marketplace.purchases} recordPurchase={marketplace.recordArtworkPurchase} loadBidsForArtwork={marketplace.loadBidsForArtwork} onReport={openReport} user={user} role={role} refreshCatalogue={marketplace.refreshCatalogue}/>}
-          {view === 'artist' && selectedArtist && <ArtistView artistId={selectedArtist} goToArtwork={goToArtwork} follows={follows} toggleFollow={toggleFollow} likes={likes} toggleLike={toggleLike} onReport={openReport}/>}
+          {view === 'artist' && selectedArtist && <ArtistView artistId={selectedArtist} goToArtwork={goToArtwork} follows={follows} toggleFollow={toggleFollow} likes={likes} toggleLike={toggleLike} role={role} onBookCommission={openCommissionBooking} onReport={openReport}/>}
           {view === 'commissions' && <CommissionsView goToArtist={goToArtist} role={role} onBookCommission={openCommissionBooking}/>}
           {view === 'feed' && <FeedView goToArtwork={goToArtwork} goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow} canPost={isSellerRole(role) && profile?.verified === true && !!ownedArtist} onPost={handleCreateFeedPost} user={user} ownedArtist={ownedArtist} feedPosts={marketplace.feedPosts} artists={marketplace.artists} artworks={marketplace.artworks} postLikes={postLikes} togglePostLike={togglePostLike} savedPosts={savedPosts} toggleSavedPost={toggleSavedPost} onDeletePost={handleDeleteFeedPost} onEditPost={handleEditFeedPost} onRefresh={marketplace.refreshCatalogue} onReport={openReport}/>}
           {view === 'artists' && <ArtistsView goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow}/>}

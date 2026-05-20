@@ -9,6 +9,7 @@ import { ARTWORKS, artworkById, artistById } from '../lib/catalogue';
 
 export const BuyerDashboard = ({ goToArtwork, likes, toggleLike, userBids, purchases = [], auctionSettlements = [], artworks = ARTWORKS, watchlist, toggleWatch, profile, commissionState, onOpenCommissionThread, setView }) => {
   const [tab, setTab] = useState('bids');
+  const [commissionNotice, setCommissionNotice] = useState('');
   const watchedWorks = ARTWORKS.filter(w => watchlist[w.id]);
   const findArtwork = (id) => (artworks || []).find(work => work.id === id) || artworkById(id);
   const acquiredRows = (purchases || [])
@@ -27,6 +28,16 @@ export const BuyerDashboard = ({ goToArtwork, likes, toggleLike, userBids, purch
     .filter(row => row.settlement.status === 'invoice_pending')
     .reduce((total, row) => total + Number(row.settlement.totalDue || 0), 0);
   const formatDate = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '-';
+  const updateCommissionStatus = async (booking, status) => {
+    setCommissionNotice('');
+    const result = await commissionState.transitionBooking(booking.id, status);
+    if (result?.error) {
+      setCommissionNotice(result.error);
+      return false;
+    }
+    setCommissionNotice(`Commission moved to ${commissionState.stateLabel(status).toLowerCase()}.`);
+    return true;
+  };
 
   return (
     <main className="fade-in max-w-[1440px] mx-auto px-8 py-10">
@@ -226,6 +237,11 @@ export const BuyerDashboard = ({ goToArtwork, likes, toggleLike, userBids, purch
       {tab === 'commissions' && (
         buyerBookings.length ? (
         <div className="space-y-4">
+          {commissionNotice && (
+            <div className="hair-all p-3 bg-[var(--bg-2)] text-[13px] text-[var(--muted)]">
+              {commissionNotice}
+            </div>
+          )}
           {buyerBookings.map((c) => (
             <div key={c.id} className="hair-all p-6 bg-[var(--card)]">
               <div className="flex justify-between items-start">
@@ -247,7 +263,19 @@ export const BuyerDashboard = ({ goToArtwork, likes, toggleLike, userBids, purch
                 <div><div className="label">Amount</div><div className="mono mt-1">${fmt(c.price)}</div></div>
                 <div><div className="label">Status</div><div className="mt-1 text-[13px]">Escrowed</div></div>
                 <div><div className="label">Due</div><div className="mono mt-1">{c.commission?.days || '-'}d</div></div>
-                <div className="flex justify-end items-end"><button onClick={() => onOpenCommissionThread(c)} className="swiss-btn">Open thread <ArrowRight size={12}/></button></div>
+                <div className="flex justify-end items-end gap-2 flex-wrap">
+                  {c.status === 'DELIVERED' && (
+                    <button onClick={() => updateCommissionStatus(c, 'ACCEPTED')} className="swiss-btn accent">
+                      Accept delivery <ArrowRight size={12}/>
+                    </button>
+                  )}
+                  {['BOOKED', 'BRIEFED'].includes(c.status) && (
+                    <button onClick={() => updateCommissionStatus(c, 'CANCELLED')} className="swiss-btn ghost">
+                      Cancel
+                    </button>
+                  )}
+                  <button onClick={() => onOpenCommissionThread(c)} className="swiss-btn">Open thread <ArrowRight size={12}/></button>
+                </div>
               </div>
             </div>
           ))}

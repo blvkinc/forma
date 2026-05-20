@@ -8,7 +8,7 @@ import { CommissionCard } from '../features/commissions';
 import { fmt } from '../lib/ui';
 import { ARTWORKS, COMMISSIONS, artistById } from '../lib/catalogue';
 
-export const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes, toggleLike, onReport }) => {
+export const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes, toggleLike, role, onBookCommission, onReport }) => {
   const artist = artistById(artistId);
   const works = ARTWORKS.filter(w => w.artist === artistId);
   const liveWorks = works.filter(w => w.endsAt > 0);
@@ -98,7 +98,7 @@ export const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes
       {tab === 'commissions' && (
         <div className="grid grid-cols-2 gap-6">
           {commissions.map(c => (
-            <CommissionCard key={c.id} commission={c}/>
+            <CommissionCard key={c.id} commission={c} role={role} onBookCommission={onBookCommission}/>
           ))}
           {commissions.length === 0 && (
             <div className="hair-all p-12 text-center col-span-2">

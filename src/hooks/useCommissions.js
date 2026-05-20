@@ -87,8 +87,9 @@ export function useCommissions(artistId = null) {
     if (result.error) return result;
 
     // Update local state
+    const saved = result.data;
     const updateList = (list) => list.map(b =>
-      b.id === bookingId ? { ...b, status: newStatus, updatedAt: new Date().toISOString() } : b
+      b.id === bookingId ? { ...b, ...(saved || {}), status: saved?.status || newStatus, updatedAt: saved?.updatedAt || new Date().toISOString() } : b
     );
 
     setBuyerBookings(updateList);

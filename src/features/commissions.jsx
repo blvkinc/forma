@@ -72,6 +72,7 @@ export const CommissionCard = ({ commission, role, onBookCommission }) => {
 export const CommissionBookingModal = ({ commission, role, onClose, onConfirm, getPriceBreakdown }) => {
   const [briefText, setBriefText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   if (!commission) return null;
 
@@ -83,7 +84,9 @@ export const CommissionBookingModal = ({ commission, role, onClose, onConfirm, g
     event.preventDefault();
     if (!canSubmit) return;
     setSubmitting(true);
-    await onConfirm(briefText.trim());
+    setError('');
+    const result = await onConfirm(briefText.trim());
+    if (result?.error) setError(result.error);
     setSubmitting(false);
   };
 
@@ -138,6 +141,11 @@ export const CommissionBookingModal = ({ commission, role, onClose, onConfirm, g
           <div className="hair-all p-4 bg-[var(--bg-2)] text-[13px] leading-relaxed">
             The slot is created in Supabase as a booked commission. Payment escrow is represented as pending until the Stripe adapter is added.
           </div>
+          {error && (
+            <div className="hair-all p-3 bg-[var(--accent-soft)] text-[var(--accent)] text-[13px]">
+              {error}
+            </div>
+          )}
         </div>
 
         <div className="p-6 hair-t flex justify-end gap-3">

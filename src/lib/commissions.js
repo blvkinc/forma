@@ -25,6 +25,16 @@ async function devApi(path, options = {}) {
   return payload.data;
 }
 
+async function tryDevApi(path, options = {}) {
+  if (!import.meta.env.DEV) return null;
+  try {
+    return await devApi(path, options);
+  } catch (error) {
+    console.warn('Commission dev API unavailable, using Supabase client fallback:', error.message || error);
+    return null;
+  }
+}
+
 // ============================================================
 // COMMISSIONS SERVICE — Booking & lifecycle management
 // ============================================================
@@ -39,20 +49,24 @@ export async function bookCommission(userId, commission, briefText = '') {
     return { error: 'No slots available' };
   }
 
-  try {
-    const apiData = await devApi('/api/commission-bookings', {
-      method: 'POST',
-      body: JSON.stringify({
-        commissionId: commission.id,
-        artistId: commission.artist,
-        briefText,
-        price: commission.price,
-      }),
-    });
-    if (apiData) return { data: transformBooking(apiData) };
-  } catch (error) {
-    console.error('Failed to book commission:', error);
-    return { error: error.message };
+  const cleanBrief = String(briefText || '').trim().slice(0, 1200);
+  const apiData = await tryDevApi('/api/commission-bookings', {
+    method: 'POST',
+    body: JSON.stringify({
+      commissionId: commission.id,
+      artistId: commission.artist,
+      briefText: cleanBrief,
+      price: commission.price,
+    }),
+  });
+
+  if (apiData) {
+    const booking = transformBooking(apiData);
+    if (cleanBrief) {
+      const message = await sendCommissionMessage(booking.id, userId, cleanBrief, true);
+      if (!message?.error) booking.initialMessage = message.data;
+    }
+    return { data: booking };
   }
 
   const { data, error } = await supabase
@@ -62,10 +76,10 @@ export async function bookCommission(userId, commission, briefText = '') {
       buyer_id: userId,
       artist_id: commission.artist,
       status: COMMISSION_STATES.BOOKED,
-      brief_text: briefText,
+      brief_text: cleanBrief,
       price: commission.price,
     })
-    .select()
+    .select('*, commissions(*), artists(*)')
     .single();
 
   if (error) {
@@ -73,14 +87,20 @@ export async function bookCommission(userId, commission, briefText = '') {
     return { error: error.message };
   }
 
-  return { data: transformBooking(data) };
+  const booking = transformBooking(data);
+  if (cleanBrief) {
+    const message = await sendCommissionMessage(booking.id, userId, cleanBrief, true);
+    if (!message?.error) booking.initialMessage = message.data;
+  }
+
+  return { data: booking };
 }
 
 /**
  * Fetch all bookings for a user (as buyer).
  */
 export async function fetchBuyerBookings(userId) {
-  const apiData = await devApi('/api/commission-bookings?scope=buyer');
+  const apiData = await tryDevApi('/api/commission-bookings?scope=buyer');
   if (apiData) return (apiData || []).map(transformBooking);
 
   const { data, error } = await supabase
@@ -97,7 +117,7 @@ export async function fetchBuyerBookings(userId) {
  * Fetch all bookings for an artist.
  */
 export async function fetchArtistBookings(artistId) {
-  const apiData = await devApi(`/api/commission-bookings?scope=artist&artistId=${encodeURIComponent(artistId)}`);
+  const apiData = await tryDevApi(`/api/commission-bookings?scope=artist&artistId=${encodeURIComponent(artistId)}`);
   if (apiData) return (apiData || []).map(transformBooking);
 
   const { data, error } = await supabase
@@ -114,15 +134,11 @@ export async function fetchArtistBookings(artistId) {
  * Transition a booking to a new state.
  */
 export async function transitionBooking(bookingId, newStatus) {
-  try {
-    const apiData = await devApi('/api/commission-bookings', {
-      method: 'PATCH',
-      body: JSON.stringify({ bookingId, status: newStatus }),
-    });
-    if (apiData) return { data: transformBooking(apiData) };
-  } catch (error) {
-    return { error: error.message };
-  }
+  const apiData = await tryDevApi('/api/commission-bookings', {
+    method: 'PATCH',
+    body: JSON.stringify({ bookingId, status: newStatus }),
+  });
+  if (apiData) return { data: transformBooking(apiData) };
 
   // Get current state
   const { data: current, error: fetchErr } = await supabase
@@ -141,7 +157,7 @@ export async function transitionBooking(bookingId, newStatus) {
     .from('commission_bookings')
     .update({ status: newStatus, updated_at: new Date().toISOString() })
     .eq('id', bookingId)
-    .select()
+    .select('*, commissions(*), artists(*)')
     .single();
 
   if (error) return { error: error.message };
@@ -152,7 +168,7 @@ export async function transitionBooking(bookingId, newStatus) {
  * Fetch messages in a commission thread.
  */
 export async function fetchCommissionMessages(bookingId) {
-  const apiData = await devApi(`/api/commission-messages?bookingId=${encodeURIComponent(bookingId)}`);
+  const apiData = await tryDevApi(`/api/commission-messages?bookingId=${encodeURIComponent(bookingId)}`);
   if (apiData) return (apiData || []).map(transformMessage);
 
   const { data, error } = await supabase
@@ -169,22 +185,21 @@ export async function fetchCommissionMessages(bookingId) {
  * Send a message in a commission thread.
  */
 export async function sendCommissionMessage(bookingId, userId, body, isMilestone = false) {
-  try {
-    const apiData = await devApi('/api/commission-messages', {
-      method: 'POST',
-      body: JSON.stringify({ bookingId, body, isMilestone }),
-    });
-    if (apiData) return { data: transformMessage(apiData) };
-  } catch (error) {
-    return { error: error.message };
-  }
+  const cleanBody = String(body || '').trim().slice(0, 800);
+  if (!cleanBody) return { error: 'Write a message first.' };
+
+  const apiData = await tryDevApi('/api/commission-messages', {
+    method: 'POST',
+    body: JSON.stringify({ bookingId, body: cleanBody, isMilestone }),
+  });
+  if (apiData) return { data: transformMessage(apiData) };
 
   const { data, error } = await supabase
     .from('commission_messages')
     .insert({
       booking_id: bookingId,
       sender_id: userId,
-      body,
+      body: cleanBody,
       is_milestone: isMilestone,
     })
     .select()
