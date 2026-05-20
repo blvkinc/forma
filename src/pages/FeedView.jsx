@@ -1,15 +1,15 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   Image as ImageIcon, Tag, Hash, Send, Heart, MessageCircle, Share2, Bookmark,
-  ArrowUpRight, ArrowRight, Trash2, Flag, Pencil, X, Check,
+  ArrowUpRight, ArrowRight, Trash2, Flag, Pencil, X, Check, ShieldCheck,
 } from 'lucide-react';
 import { ArtVisual } from '../components/shared';
-import { fmt, relativeTime } from '../lib/ui';
+import { fmt, relativeTime, isAdminRole } from '../lib/ui';
 import { FEED_POSTS, ARTISTS, ARTWORKS, artistById, artworkById } from '../lib/catalogue';
 import { fetchPostComments, addPostComment, deletePostComment, subscribeToDropAlerts } from '../lib/social';
 import { supabase } from '../lib/supabase';
 
-function PostComments({ postId, userId, onCountChange }) {
+function PostComments({ postId, userId, onCountChange, canComment = true, readOnlyLabel = 'Comments are read-only for this role.' }) {
   const [comments, setComments] = useState([]);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(true);
@@ -29,6 +29,7 @@ function PostComments({ postId, userId, onCountChange }) {
 
   const submit = async (event) => {
     event.preventDefault();
+    if (!canComment) { setError(readOnlyLabel); return; }
     if (!userId) { setError('Sign in to comment.'); return; }
     setSending(true);
     setError('');
@@ -70,7 +71,7 @@ function PostComments({ postId, userId, onCountChange }) {
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <span className="mono text-[10px] text-[var(--muted)]">{relativeTime(comment.createdAt)}</span>
-                  {comment.userId === userId && (
+                  {canComment && comment.userId === userId && (
                     <button type="button" onClick={() => removeComment(comment.id)} className="hair-all w-6 h-6 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]" aria-label="Delete comment">
                       <Trash2 size={11}/>
                     </button>
@@ -82,18 +83,24 @@ function PostComments({ postId, userId, onCountChange }) {
           ))}
         </div>
       )}
-      <form onSubmit={submit} className="hair-all p-2 flex gap-2 mt-3">
-        <input
-          value={draft}
-          onChange={event => setDraft(event.target.value)}
-          className="swiss-input flex-1 border-none"
-          placeholder="Add a comment..."
-          maxLength={800}
-        />
-        <button type="submit" disabled={sending || !draft.trim()} className={`swiss-btn ${sending || !draft.trim() ? 'opacity-50 cursor-not-allowed' : ''}`} aria-label="Post comment">
-          <Send size={12}/>
-        </button>
-      </form>
+      {canComment ? (
+        <form onSubmit={submit} className="hair-all p-2 flex gap-2 mt-3">
+          <input
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            className="swiss-input flex-1 border-none"
+            placeholder="Add a comment..."
+            maxLength={800}
+          />
+          <button type="submit" disabled={sending || !draft.trim()} className={`swiss-btn ${sending || !draft.trim() ? 'opacity-50 cursor-not-allowed' : ''}`} aria-label="Post comment">
+            <Send size={12}/>
+          </button>
+        </form>
+      ) : (
+        <div className="hair-all p-3 mt-3 mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
+          {readOnlyLabel}
+        </div>
+      )}
       {error && <div className="text-[12px] text-[var(--accent)] mt-2">{error}</div>}
     </div>
   );
@@ -119,6 +126,8 @@ export const FeedView = ({
   onEditPost,
   onRefresh,
   onReport,
+  role,
+  onOpenAdmin,
 }) => {
   const [tab, setTab] = useState('latest');
   const [composer, setComposer] = useState('');
@@ -135,6 +144,12 @@ export const FeedView = ({
   const [editBody, setEditBody] = useState('');
   const [editType, setEditType] = useState('note');
   const [editSaving, setEditSaving] = useState(false);
+  const isAdmin = isAdminRole(role);
+  const canPostInFeed = canPost && !isAdmin;
+
+  useEffect(() => {
+    if (isAdmin && (tab === 'following' || tab === 'saved')) setTab('latest');
+  }, [isAdmin, tab]);
 
   useEffect(() => {
     if (!onRefresh) return undefined;
@@ -229,7 +244,7 @@ export const FeedView = ({
 
   const submitPost = async () => {
     const body = composer.trim();
-    if (!body || !onPost) return;
+    if (!body || !onPost || !canPostInFeed) return;
     setPosting(true);
     setNotice('');
     const result = await onPost({ body, type: postType, artworkId: linkedArtwork || null });
@@ -244,6 +259,10 @@ export const FeedView = ({
   };
 
   const requireSignedIn = () => {
+    if (isAdmin) {
+      setNotice('Admin accounts review social activity from the admin console.');
+      return false;
+    }
     if (user?.id) return true;
     setNotice('Sign in to use social actions.');
     return false;
@@ -281,9 +300,17 @@ export const FeedView = ({
         <div>
           <div className="label mb-2">No. 07 - Feed</div>
           <h1 className="display text-[64px] leading-[0.9]">What the studios are saying.</h1>
+          {isAdmin && (
+            <p className="text-[13px] text-[var(--muted)] mt-3 max-w-[640px] leading-relaxed">
+              Admin mode is read-only here. Use reports and moderation decisions instead of liking, following, saving, or commenting.
+            </p>
+          )}
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
-          {[{k:'latest',l:'Latest'},{k:'following',l:'Following'},{k:'drops',l:'Drops only'},{k:'saved',l:'Saved'}].map(item => (
+          {(isAdmin
+            ? [{k:'latest',l:'Latest'},{k:'drops',l:'Drops only'}]
+            : [{k:'latest',l:'Latest'},{k:'following',l:'Following'},{k:'drops',l:'Drops only'},{k:'saved',l:'Saved'}]
+          ).map(item => (
             <button type="button" key={item.k} onClick={() => setTab(item.k)} className={`tab-pill ${tab === item.k ? 'active' : ''}`}>{item.l}</button>
           ))}
         </div>
@@ -292,55 +319,77 @@ export const FeedView = ({
       <div className="grid grid-cols-12 gap-10">
         <div className="col-span-7">
           <div className="hair-all p-5 mb-8 bg-[var(--card)]">
-            <div className="flex items-start gap-3">
-              <div className="w-9 h-9 bg-[var(--ink)] flex-shrink-0"/>
-              <textarea
-                value={composer}
-                onChange={event => setComposer(event.target.value)}
-                className="swiss-input border-none flex-1 resize-none"
-                rows="2"
-                maxLength={1200}
-                disabled={!canPost || posting}
-                placeholder={canPost ? 'Post a note, share a process shot, announce a drop...' : 'Sign in with a seller studio to post to the feed.'}
-              />
-            </div>
-            <div className="flex justify-between items-center mt-3 hair-t pt-3 gap-3 flex-wrap">
-              <div className="flex gap-3 label items-center flex-wrap">
-                {canPost ? (
-                  <>
-                    <select
-                      value={postType}
-                      onChange={event => setPostType(event.target.value)}
-                      aria-label="Post type"
-                      className="tab-pill bg-transparent"
-                    >
-                      <option value="note">Note</option>
-                      <option value="process">Process</option>
-                      <option value="drop">Drop</option>
-                      <option value="sold">Sold</option>
-                    </select>
-                    <select
-                      value={linkedArtwork}
-                      onChange={event => setLinkedArtwork(event.target.value)}
-                      aria-label="Linked artwork"
-                      className="tab-pill bg-transparent min-w-[180px]"
-                    >
-                      <option value="">No linked work</option>
-                      {ownedWorks.map(work => <option key={work.id} value={work.id}>{work.title}</option>)}
-                    </select>
-                  </>
-                ) : (
-                  <>
-                    <span className="flex items-center gap-1"><ImageIcon size={12}/> Image</span>
-                    <span className="flex items-center gap-1"><Tag size={12}/> Tag work</span>
-                    <span className="flex items-center gap-1"><Hash size={12}/> Topic</span>
-                  </>
-                )}
+            {isAdmin ? (
+              <div className="flex items-start justify-between gap-5">
+                <div className="flex items-start gap-4">
+                  <div className="hair-all w-10 h-10 inline-flex items-center justify-center bg-[var(--bg)]">
+                    <ShieldCheck size={17}/>
+                  </div>
+                  <div>
+                    <div className="label">Admin social lens</div>
+                    <div className="display text-[28px] mt-2 leading-tight">Review signals, don't participate.</div>
+                    <p className="text-[13px] text-[var(--muted)] mt-2 leading-relaxed max-w-[640px]">
+                      Feed posts are seller-owned. Buyers and sellers can comment, save, follow, and report; admins resolve reports and enforce policy from Operations.
+                    </p>
+                  </div>
+                </div>
+                <button type="button" onClick={onOpenAdmin} className="swiss-btn ghost flex-shrink-0">
+                  Open admin <ArrowRight size={12}/>
+                </button>
               </div>
-              <button type="button" onClick={submitPost} className="swiss-btn" disabled={!canPost || !composer.trim() || posting}>
-                {posting ? 'Posting...' : 'Post'} <Send size={12}/>
-              </button>
-            </div>
+            ) : (
+              <>
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 bg-[var(--ink)] flex-shrink-0"/>
+                  <textarea
+                    value={composer}
+                    onChange={event => setComposer(event.target.value)}
+                    className="swiss-input border-none flex-1 resize-none"
+                    rows="2"
+                    maxLength={1200}
+                    disabled={!canPostInFeed || posting}
+                    placeholder={canPostInFeed ? 'Post a note, share a process shot, announce a drop...' : 'Use a verified seller studio to post to the feed.'}
+                  />
+                </div>
+                <div className="flex justify-between items-center mt-3 hair-t pt-3 gap-3 flex-wrap">
+                  <div className="flex gap-3 label items-center flex-wrap">
+                    {canPostInFeed ? (
+                      <>
+                        <select
+                          value={postType}
+                          onChange={event => setPostType(event.target.value)}
+                          aria-label="Post type"
+                          className="tab-pill bg-transparent"
+                        >
+                          <option value="note">Note</option>
+                          <option value="process">Process</option>
+                          <option value="drop">Drop</option>
+                          <option value="sold">Sold</option>
+                        </select>
+                        <select
+                          value={linkedArtwork}
+                          onChange={event => setLinkedArtwork(event.target.value)}
+                          aria-label="Linked artwork"
+                          className="tab-pill bg-transparent min-w-[180px]"
+                        >
+                          <option value="">No linked work</option>
+                          {ownedWorks.map(work => <option key={work.id} value={work.id}>{work.title}</option>)}
+                        </select>
+                      </>
+                    ) : (
+                      <>
+                        <span className="flex items-center gap-1"><ImageIcon size={12}/> Image</span>
+                        <span className="flex items-center gap-1"><Tag size={12}/> Tag work</span>
+                        <span className="flex items-center gap-1"><Hash size={12}/> Topic</span>
+                      </>
+                    )}
+                  </div>
+                  <button type="button" onClick={submitPost} className="swiss-btn" disabled={!canPostInFeed || !composer.trim() || posting}>
+                    {posting ? 'Posting...' : 'Post'} <Send size={12}/>
+                  </button>
+                </div>
+              </>
+            )}
             {notice && <div className="text-[12px] text-[var(--muted)] mt-3">{notice}</div>}
           </div>
 
@@ -366,7 +415,7 @@ export const FeedView = ({
               const liked = !!postLikes[post.id];
               const saved = !!savedPosts[post.id];
               const commentCount = Math.max(0, Number(post.comments || 0) + Number(commentDeltas[post.id] || 0));
-              const canDelete = ownedArtist?.id === post.artist;
+              const canDelete = !isAdmin && ownedArtist?.id === post.artist;
 
               return (
                 <div key={post.id} className="hair-b py-8">
@@ -440,15 +489,21 @@ export const FeedView = ({
                         </button>
                       )}
                       <div className="flex gap-5 mt-4 label flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() => requireSignedIn() && togglePostLike?.(post.id)}
-                          aria-label={liked ? 'Unlike feed post' : 'Like feed post'}
-                          title={liked ? 'Unlike' : 'Like'}
-                          className={`cursor-pointer hover:text-[var(--accent)] flex items-center gap-1.5 ${liked ? 'text-[var(--accent)]' : ''}`}
-                        >
-                          <Heart size={11} fill={liked ? 'currentColor' : 'none'}/> {post.likes || 0}
-                        </button>
+                        {isAdmin ? (
+                          <span className="flex items-center gap-1.5 text-[var(--muted)]">
+                            <Heart size={11}/> {post.likes || 0} likes
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => requireSignedIn() && togglePostLike?.(post.id)}
+                            aria-label={liked ? 'Unlike feed post' : 'Like feed post'}
+                            title={liked ? 'Unlike' : 'Like'}
+                            className={`cursor-pointer hover:text-[var(--accent)] flex items-center gap-1.5 ${liked ? 'text-[var(--accent)]' : ''}`}
+                          >
+                            <Heart size={11} fill={liked ? 'currentColor' : 'none'}/> {post.likes || 0}
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => setOpenPost(openPost === post.id ? null : post.id)}
@@ -460,23 +515,37 @@ export const FeedView = ({
                           <MessageCircle size={11}/> {commentCount}
                         </button>
                         <button type="button" onClick={() => sharePost(post.id)} className="cursor-pointer hover:text-[var(--ink)] flex items-center gap-1.5" aria-label="Share feed post" title="Share"><Share2 size={11}/> Share</button>
-                        <button
-                          type="button"
-                          onClick={() => requireSignedIn() && toggleSavedPost?.(post.id)}
-                          aria-label={saved ? 'Unsave feed post' : 'Save feed post'}
-                          title={saved ? 'Unsave' : 'Save'}
-                          className={`cursor-pointer hover:text-[var(--ink)] flex items-center gap-1.5 ${saved ? 'text-[var(--ink)]' : ''}`}
-                        >
-                          <Bookmark size={11} fill={saved ? 'currentColor' : 'none'}/> {post.saves || 0}
-                        </button>
-                        <button type="button" onClick={() => onReport?.({ type: 'feed_post', id: post.id, label: `${artist.name} feed post` })} className="cursor-pointer hover:text-[var(--accent)] flex items-center gap-1.5 ml-auto" aria-label="Report feed post" title="Report">
-                          <Flag size={11}/> Report
-                        </button>
+                        {isAdmin ? (
+                          <span className="flex items-center gap-1.5 text-[var(--muted)]">
+                            <Bookmark size={11}/> {post.saves || 0} saves
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => requireSignedIn() && toggleSavedPost?.(post.id)}
+                            aria-label={saved ? 'Unsave feed post' : 'Save feed post'}
+                            title={saved ? 'Unsave' : 'Save'}
+                            className={`cursor-pointer hover:text-[var(--ink)] flex items-center gap-1.5 ${saved ? 'text-[var(--ink)]' : ''}`}
+                          >
+                            <Bookmark size={11} fill={saved ? 'currentColor' : 'none'}/> {post.saves || 0}
+                          </button>
+                        )}
+                        {isAdmin ? (
+                          <button type="button" onClick={onOpenAdmin} className="cursor-pointer hover:text-[var(--accent)] flex items-center gap-1.5 ml-auto" aria-label="Review social reports" title="Review">
+                            <ShieldCheck size={11}/> Review
+                          </button>
+                        ) : (
+                          <button type="button" onClick={() => onReport?.({ type: 'feed_post', id: post.id, label: `${artist.name} feed post` })} className="cursor-pointer hover:text-[var(--accent)] flex items-center gap-1.5 ml-auto" aria-label="Report feed post" title="Report">
+                            <Flag size={11}/> Report
+                          </button>
+                        )}
                       </div>
                       {openPost === post.id && (
                         <PostComments
                           postId={post.id}
                           userId={user?.id}
+                          canComment={!isAdmin}
+                          readOnlyLabel="Admin accounts can view comments here. Resolve comment issues through reports."
                           onCountChange={(delta) => setCommentDeltas(prev => ({ ...prev, [post.id]: Number(prev[post.id] || 0) + delta }))}
                         />
                       )}
@@ -502,9 +571,15 @@ export const FeedView = ({
                       <div className="mono text-[10px] text-[var(--muted)] truncate">{artist.handle} · {fmt(artist.followers)}</div>
                     </div>
                   </button>
-                  <button type="button" onClick={() => toggleFollow(artist.id)} className={`mono text-[10px] uppercase tracking-[0.1em] px-3 py-1.5 transition-colors ${following ? 'hair-all text-[var(--muted)]' : 'bg-[var(--ink)] text-[var(--bg)]'}`}>
-                    {following ? 'Following' : 'Follow'}
-                  </button>
+                  {isAdmin ? (
+                    <button type="button" onClick={() => goToArtist(artist.id)} className="mono text-[10px] uppercase tracking-[0.1em] px-3 py-1.5 transition-colors hair-all hover:bg-[var(--ink)] hover:text-[var(--bg)]">
+                      Open
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => toggleFollow(artist.id)} className={`mono text-[10px] uppercase tracking-[0.1em] px-3 py-1.5 transition-colors ${following ? 'hair-all text-[var(--muted)]' : 'bg-[var(--ink)] text-[var(--bg)]'}`}>
+                      {following ? 'Following' : 'Follow'}
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -542,20 +617,38 @@ export const FeedView = ({
             )}
           </div>
 
-          <div className="hair-all p-6 bg-[var(--ink)] text-[var(--bg)]">
-            <div className="label" style={{color:'#9C988A'}}>Drop alerts</div>
-            <div className="display text-[28px] mt-3 leading-tight">Get notified 6 hours before public drops.</div>
-            <input
-              type="email"
-              value={alertEmail}
-              onChange={event => setAlertEmail(event.target.value)}
-              onKeyDown={event => { if (event.key === 'Enter') subscribeDropAlerts(); }}
-              className="swiss-input mt-5 text-[var(--bg)] border-[#3a3a36]"
-              placeholder="your@email"
-              aria-label="Email for drop alerts"
-            />
-            <button type="button" onClick={subscribeDropAlerts} className="swiss-btn accent w-full justify-center mt-3">Subscribe <ArrowRight size={12}/></button>
-          </div>
+          {isAdmin ? (
+            <div className="hair-all p-6 bg-[var(--ink)] text-[var(--bg)]">
+              <div className="label" style={{color:'#9C988A'}}>Social controls</div>
+              <div className="display text-[28px] mt-3 leading-tight">Reports are the admin action path.</div>
+              <div className="grid grid-cols-2 gap-3 mt-5">
+                <div className="hair-all border-[#3a3a36] p-3">
+                  <div className="mono text-[22px] leading-none">{feedPosts.length}</div>
+                  <div className="label mt-1" style={{color:'#9C988A'}}>Posts</div>
+                </div>
+                <div className="hair-all border-[#3a3a36] p-3">
+                  <div className="mono text-[22px] leading-none">{artists.length}</div>
+                  <div className="label mt-1" style={{color:'#9C988A'}}>Studios</div>
+                </div>
+              </div>
+              <button type="button" onClick={onOpenAdmin} className="swiss-btn accent w-full justify-center mt-4">Open admin queue <ArrowRight size={12}/></button>
+            </div>
+          ) : (
+            <div className="hair-all p-6 bg-[var(--ink)] text-[var(--bg)]">
+              <div className="label" style={{color:'#9C988A'}}>Drop alerts</div>
+              <div className="display text-[28px] mt-3 leading-tight">Get notified 6 hours before public drops.</div>
+              <input
+                type="email"
+                value={alertEmail}
+                onChange={event => setAlertEmail(event.target.value)}
+                onKeyDown={event => { if (event.key === 'Enter') subscribeDropAlerts(); }}
+                className="swiss-input mt-5 text-[var(--bg)] border-[#3a3a36]"
+                placeholder="your@email"
+                aria-label="Email for drop alerts"
+              />
+              <button type="button" onClick={subscribeDropAlerts} className="swiss-btn accent w-full justify-center mt-3">Subscribe <ArrowRight size={12}/></button>
+            </div>
+          )}
         </div>
       </div>
     </main>

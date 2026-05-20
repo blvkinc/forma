@@ -1,23 +1,26 @@
 // ============================================================
 // FORMA — Admin console
 // ============================================================
-import React, { useState } from 'react';
-import { Check, ExternalLink, Eye, Flag, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Check, ExternalLink, Eye, Flag, MessageCircle, ShieldCheck, X } from 'lucide-react';
 import { ArtVisual } from '../components/shared';
 import { fmt, formatTime, relativeTime } from '../lib/ui';
-import { ARTWORKS, ARTISTS, COMMISSIONS, artworkById, artistById } from '../lib/catalogue';
+import { ARTWORKS, ARTISTS, COMMISSIONS, FEED_POSTS, artworkById, artistById } from '../lib/catalogue';
 import { useAdmin } from '../hooks/useAdmin';
 
-export const AdminDashboard = ({ goToArtist, goToArtwork, trustState, profile, user }) => {
-  const [tab, setTab] = useState('overview');
+export const AdminDashboard = ({ goToArtist, goToArtwork, goToFeed, trustState, profile, user, initialModerationArtworkId, initialTab }) => {
+  const [tab, setTab] = useState(initialModerationArtworkId ? 'moderation' : initialTab || 'overview');
   const [actionError, setActionError] = useState(null);
   const [reviewNotes, setReviewNotes] = useState({});
-  const [selectedModerationId, setSelectedModerationId] = useState(null);
+  const [selectedModerationId, setSelectedModerationId] = useState(initialModerationArtworkId || null);
   const [moderationNotes, setModerationNotes] = useState({});
   const admin = useAdmin();
   const reports = trustState?.reports || [];
   const openReports = reports.filter(report => report.status === 'open' || report.status === 'reviewing');
   const highPriorityReports = openReports.filter(report => report.priority === 'high');
+  const socialTargetTypes = new Set(['feed_post', 'artist', 'user']);
+  const socialReports = reports.filter(report => socialTargetTypes.has(report.targetType));
+  const openSocialReports = socialReports.filter(report => report.status === 'open' || report.status === 'reviewing');
   const adminEmail = profile?.email || user?.email || 'admin';
   const adminName = profile?.display_name || adminEmail;
   const liveAuctions = ARTWORKS.filter(w => w.endsAt > 0).length;
@@ -29,6 +32,13 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, trustState, profile, u
   const pendingSellerApplications = admin.sellerApplications.filter(app => app.status === 'pending');
   const settlementByArtworkId = new Map(admin.auctionSettlements.map(s => [s.artworkId, s]));
   const sellerApplicationByProfileId = new Map(admin.sellerApplications.map(app => [app.profileId, app]));
+  const aiReviewItems = admin.moderation.artworks.filter(work =>
+    Number(work.aiVoteCount || 0) > 0 ||
+    (work.pendingProofs?.length || 0) > 0 ||
+    ['under_review', 'restricted', 'proof_pending'].includes(work.authenticityStatus)
+  );
+  const pendingProofReviews = admin.moderation.artworks.reduce((sum, work) => sum + Number(work.pendingProofs?.length || 0), 0);
+  const aiVoteTotal = admin.moderation.artworks.reduce((sum, work) => sum + Number(work.aiVoteCount || 0), 0);
   const moderationQueue = admin.moderation.artworks.filter(work =>
     work.takenDown ||
     work.reviewStatus === 'queued' ||
@@ -42,6 +52,14 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, trustState, profile, u
     moderationQueue[0] ||
     admin.moderation.artworks[0] ||
     null;
+  useEffect(() => {
+    if (initialModerationArtworkId) {
+      setSelectedModerationId(initialModerationArtworkId);
+      setTab('moderation');
+      return;
+    }
+    if (initialTab) setTab(initialTab);
+  }, [initialModerationArtworkId, initialTab]);
   const statusTone = (status) => {
     if (status === 'paid' || status === 'sent' || status === 'approved' || status === 'cleared' || status === 'verified' || status === 'accepted') return 'bg-[var(--good)] text-white';
     if (status === 'invoice_pending' || status === 'pending' || status === 'failed' || status === 'rejected' || status === 'taken_down' || status === 'restricted') return 'bg-[var(--accent)] text-white';
@@ -52,6 +70,14 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, trustState, profile, u
   const reportTargetName = (report) => {
     if (report.targetType === 'artwork') return artworkById(report.targetId).title || report.targetId;
     if (report.targetType === 'artist') return artistById(report.targetId).name || report.targetId;
+    if (report.targetType === 'feed_post') {
+      const post = FEED_POSTS.find(item => item.id === report.targetId);
+      if (!post) return report.targetId;
+      const artist = artistById(post.artist);
+      const body = String(post.text || '').slice(0, 54);
+      return `${artist.name} feed post${body ? ` - ${body}` : ''}`;
+    }
+    if (report.targetType === 'user') return `User ${String(report.targetId || '').slice(0, 8)}`;
     return report.targetId;
   };
   const reportAge = (iso) => {
@@ -142,12 +168,14 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, trustState, profile, u
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-5 mb-10">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-9 gap-5 mb-10">
         {[
           {l:'Accounts',v:fmt(admin.kyc.length),d:`${pendingKyc} pending KYC`,hot:pendingKyc > 0},
           {l:'Seller review',v:fmt(pendingSellerApplications.length),d:`${admin.sellerApplications.length} applications`,hot:pendingSellerApplications.length > 0},
           {l:'Catalogue value',v:`$${fmt(catalogueValue)}`,d:`${ARTWORKS.length} works`},
           {l:'Live auctions',v:fmt(liveAuctions),d:`${ARTWORKS.length - liveAuctions} closed`},
+          {l:'AI review',v:fmt(aiReviewItems.length),d:`${pendingProofReviews} proofs / ${aiVoteTotal} votes`,hot:aiReviewItems.length > 0},
+          {l:'Social reports',v:fmt(openSocialReports.length),d:`${socialReports.length} total`,hot:openSocialReports.length > 0},
           {l:'Invoices',v:fmt(pendingSettlements.length),d:`$${fmt(pendingSettlements.reduce((s, row) => s + Number(row.totalDue || 0), 0))} pending`,hot:pendingSettlements.length > 0},
           {l:'Commission escrow',v:`$${fmt(escrowGross)}`,d:`${admin.payouts.length} studios`},
           {l:'Delivery queue',v:String(activeDeliveries.length),d:`${activeDeliveries.filter(row => row.status === 'failed').length} failed`,hot:activeDeliveries.length > 0},
@@ -167,9 +195,10 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, trustState, profile, u
           {k:'users',l:'Users / KYC'},
           {k:'auctions',l:'Auctions'},
           {k:'settlements',l:`Invoices - ${admin.auctionSettlements.length}`},
+          {k:'social',l:`Social - ${openSocialReports.length}`},
           {k:'disputes',l:`Reports - ${openReports.length}`},
           {k:'cdisputes',l:`Disputes - ${admin.disputes.length}`},
-          {k:'moderation',l:'Moderation'},
+          {k:'moderation',l:`AI review - ${moderationQueue.length}`},
           {k:'delivery',l:`Delivery - ${activeDeliveries.length}`},
           {k:'finance',l:'Payouts'},
           {k:'audit',l:'Audit log'},
@@ -245,6 +274,8 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, trustState, profile, u
                   {l:'Studios', v:fmt(ARTISTS.length)},
                   {l:'Works listed', v:fmt(ARTWORKS.length)},
                   {l:'Commission boards', v:fmt(COMMISSIONS.length)},
+                  {l:'AI review cases', v:fmt(aiReviewItems.length)},
+                  {l:'Social reports', v:fmt(openSocialReports.length)},
                   {l:'Open disputes', v:fmt(admin.disputes.length)},
                   {l:'Pending KYC', v:fmt(pendingKyc)},
                 ].map((m,i) => (
@@ -260,12 +291,24 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, trustState, profile, u
               <div className="text-[15px] mt-3 leading-relaxed">
                 {pendingSellerApplications.length > 0
                   ? `${pendingSellerApplications.length} seller application${pendingSellerApplications.length === 1 ? '' : 's'} need portfolio review.`
+                  : aiReviewItems.length > 0
+                  ? `${aiReviewItems.length} artwork authenticity case${aiReviewItems.length === 1 ? '' : 's'} need AI/proof review.`
+                  : openSocialReports.length > 0
+                  ? `${openSocialReports.length} social report${openSocialReports.length === 1 ? '' : 's'} need feed, studio, or user review.`
                   : openReports.length > 0
                   ? `${openReports.length} trust reports need review. ${highPriorityReports.length} are high priority.`
                   : 'No open trust reports are waiting in the queue.'}
               </div>
-              <button onClick={() => setTab(pendingSellerApplications.length > 0 ? 'seller-review' : 'disputes')} className="swiss-btn mt-4 bg-white text-[var(--accent)] border-white">
-                {pendingSellerApplications.length > 0 ? 'Review sellers' : 'Review reports'}
+              <button
+                onClick={() => setTab(
+                  pendingSellerApplications.length > 0 ? 'seller-review' :
+                  aiReviewItems.length > 0 ? 'moderation' :
+                  openSocialReports.length > 0 ? 'social' :
+                  'disputes'
+                )}
+                className="swiss-btn mt-4 bg-white text-[var(--accent)] border-white"
+              >
+                {pendingSellerApplications.length > 0 ? 'Review sellers' : aiReviewItems.length > 0 ? 'Review AI cases' : openSocialReports.length > 0 ? 'Review social' : 'Review reports'}
               </button>
             </div>
           </div>
@@ -561,6 +604,113 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, trustState, profile, u
         </div>
       )}
 
+      {tab === 'social' && (
+        <div className="space-y-6">
+          <div className="hair-b pb-3 flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+            <div>
+              <h3 className="display text-[24px]">Social moderation</h3>
+              <p className="text-[12px] text-[var(--muted)] mt-1">
+                Feed posts, comments, follows, likes, and saves stay with buyer/seller accounts. Admins review reports and enforce policy from here.
+              </p>
+            </div>
+            <button onClick={trustState?.refreshReports} className="mono text-[11px] underline-hover">Refresh reports</button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {[
+              {l:'Open social', v:fmt(openSocialReports.length), d:'Needs action'},
+              {l:'Feed posts', v:fmt(socialReports.filter(report => report.targetType === 'feed_post').length), d:'Reported posts'},
+              {l:'Studios', v:fmt(socialReports.filter(report => report.targetType === 'artist').length), d:'Reported studios'},
+              {l:'Users', v:fmt(socialReports.filter(report => report.targetType === 'user').length), d:'Reported accounts'},
+            ].map(item => (
+              <div key={item.l} className="hair-all bg-[var(--card)] p-4">
+                <div className="label">{item.l}</div>
+                <div className="mono text-[26px] mt-2 leading-none">{item.v}</div>
+                <div className="text-[12px] text-[var(--muted)] mt-2">{item.d}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+            <div className="xl:col-span-8 space-y-3">
+              {trustState?.loading && (
+                <div className="hair-all bg-[var(--card)] p-8 text-center">
+                  <div className="display text-[24px]">Loading social reports.</div>
+                </div>
+              )}
+              {!trustState?.loading && socialReports.length === 0 && (
+                <div className="hair-all bg-[var(--card)] p-10 text-center">
+                  <MessageCircle size={22} className="mx-auto text-[var(--muted)]"/>
+                  <div className="display text-[28px] mt-3">No social reports.</div>
+                  <p className="text-[14px] text-[var(--muted)] mt-2">
+                    Feed, studio, and user reports will appear here for admin review.
+                  </p>
+                </div>
+              )}
+              {socialReports.map(report => (
+                <div key={report.id} className="hair-all bg-[var(--card)] p-5">
+                  <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                    <div className="flex gap-4 items-start min-w-0">
+                      <span className={`mono text-[10px] uppercase tracking-[0.12em] px-2 py-1 ${report.priority === 'high' ? 'bg-[var(--accent)] text-white' : report.priority === 'normal' ? 'bg-[#D2BE76] text-[var(--ink)]' : 'hair-all'}`}>
+                        {report.priority}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="mono text-[11px] text-[var(--muted)]">{report.id.slice(0, 8)} - {reportAge(report.createdAt)}</div>
+                        <div className="display text-[22px] mt-1 capitalize">{report.reason.replace(/_/g, ' ')}</div>
+                        <div className="mono text-[11px] mt-2 text-[var(--muted)] truncate">
+                          {report.targetType} - {reportTargetName(report)} - {report.status}
+                        </div>
+                        {report.details && <p className="text-[13px] mt-3 text-[var(--ink-2)] leading-relaxed">{report.details}</p>}
+                        {report.resolutionNote && (
+                          <p className="text-[12px] mt-3 text-[var(--muted)] leading-relaxed">Resolution: {report.resolutionNote}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      {report.targetType === 'feed_post' && (
+                        <button onClick={goToFeed} className="swiss-btn ghost">Open feed</button>
+                      )}
+                      {report.targetType === 'artist' && (
+                        <button onClick={() => goToArtist?.(report.targetId)} className="swiss-btn ghost">Open studio</button>
+                      )}
+                      {report.status !== 'reviewing' && (
+                        <button onClick={() => changeReportStatus(report.id, 'reviewing')} className="swiss-btn ghost">Review</button>
+                      )}
+                      {report.status !== 'resolved' && (
+                        <button onClick={() => changeReportStatus(report.id, 'resolved', 'Resolved by social moderation review.')} className="swiss-btn">Resolve</button>
+                      )}
+                      {report.status !== 'dismissed' && (
+                        <button onClick={() => changeReportStatus(report.id, 'dismissed', 'Dismissed by social moderation review.')} className="swiss-btn ghost">Dismiss</button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="xl:col-span-4 space-y-4">
+              <div className="hair-all bg-[var(--ink)] text-[var(--bg)] p-5">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={15}/>
+                  <div className="label" style={{color:'#9C988A'}}>Admin perspective</div>
+                </div>
+                <div className="display text-[28px] mt-3 leading-tight">Observe, verify, enforce.</div>
+                <p className="text-[13px] mt-3 leading-relaxed" style={{color:'#DCD7C8'}}>
+                  Admin accounts do not build a following graph or cast community reactions. Reports create the trail, admin notes close the loop.
+                </p>
+              </div>
+              <div className="hair-all bg-[var(--card)] p-5">
+                <div className="label mb-3">User perspective</div>
+                <div className="space-y-3 text-[13px] text-[var(--muted)] leading-relaxed">
+                  <p>Buyers and sellers can follow studios, comment on listings, like feed posts, save posts, and submit reports.</p>
+                  <p>Sellers can publish feed posts only from verified studios; buyers cannot publish studio feed content.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {tab === 'disputes' && (
         <div className="space-y-4">
           {trustState?.loading && (
@@ -622,12 +772,27 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, trustState, profile, u
         <div className="space-y-8">
           <div className="hair-b pb-3 flex flex-col lg:flex-row lg:items-end justify-between gap-3">
             <div>
-              <h3 className="display text-[24px]">Artwork review desk</h3>
-              <p className="text-[12px] text-[var(--muted)] mt-1">Inspect reports, AI votes, and artist proof before clearing or taking down a listing.</p>
+              <h3 className="display text-[24px]">Artwork / AI review desk</h3>
+              <p className="text-[12px] text-[var(--muted)] mt-1">Community AI votes queue the case; admins inspect reports and artist proof before clearing, verifying, or taking down a listing.</p>
             </div>
             <div className="mono text-[11px] text-[var(--muted)]">
               {moderationQueue.length} queued - {admin.moderation.artworks.filter(w => w.takenDown).length} taken down
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {[
+              {l:'AI review cases', v:fmt(aiReviewItems.length), d:'Vote/proof signals'},
+              {l:'Community votes', v:fmt(aiVoteTotal), d:'Across catalogue'},
+              {l:'Pending proof', v:fmt(pendingProofReviews), d:'Needs admin decision'},
+              {l:'Restricted', v:fmt(admin.moderation.artworks.filter(w => w.authenticityStatus === 'restricted').length), d:'Bidding paused'},
+            ].map(item => (
+              <div key={item.l} className="hair-all bg-[var(--card)] p-4">
+                <div className="label">{item.l}</div>
+                <div className="mono text-[26px] mt-2 leading-none">{item.v}</div>
+                <div className="text-[12px] text-[var(--muted)] mt-2">{item.d}</div>
+              </div>
+            ))}
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
@@ -652,6 +817,7 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, trustState, profile, u
                           {String(w.reviewStatus || 'clear').replace(/_/g, ' ')}
                         </span>
                         {w.openReports?.length > 0 && <span className="mono text-[8px] uppercase tracking-[0.1em] hair-all px-1.5 py-0.5">{w.openReports.length} reports</span>}
+                        {Number(w.aiVoteCount || 0) > 0 && <span className="mono text-[8px] uppercase tracking-[0.1em] hair-all px-1.5 py-0.5">{w.aiVoteCount} AI votes</span>}
                         {w.pendingProofs?.length > 0 && <span className="mono text-[8px] uppercase tracking-[0.1em] hair-all px-1.5 py-0.5">{w.pendingProofs.length} proof</span>}
                       </div>
                     </div>

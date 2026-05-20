@@ -2,10 +2,10 @@
 // FORMA — Artist profile / shop
 // ============================================================
 import React, { useState } from 'react';
-import { ArrowLeft, ArrowUpRight, Check, Plus, Flag } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Check, Plus, Flag, ShieldCheck } from 'lucide-react';
 import { ArtCard } from '../components/shared';
 import { CommissionCard } from '../features/commissions';
-import { fmt } from '../lib/ui';
+import { fmt, isAdminRole } from '../lib/ui';
 import { ARTWORKS, COMMISSIONS, artistById } from '../lib/catalogue';
 
 export const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes, toggleLike, role, onBookCommission, onReport }) => {
@@ -18,6 +18,7 @@ export const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes
   const [tab, setTab] = useState('works');
   const isFollowing = follows[artistId];
   const followerCount = Number(artist.followers || 0);
+  const isAdmin = isAdminRole(role);
 
   return (
     <main className="fade-in max-w-[1440px] mx-auto px-8 py-10">
@@ -62,11 +63,24 @@ export const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes
           </div>
         </div>
         <div className="col-span-3 flex flex-col gap-3 justify-end">
-          <button onClick={() => toggleFollow(artistId)} className={`swiss-btn ${isFollowing ? 'ghost' : ''} justify-center`}>
-            {isFollowing ? <><Check size={12}/> Following</> : <><Plus size={12}/> Follow</>}
+          {isAdmin ? (
+            <div className="hair-all p-4 bg-[var(--card)]">
+              <div className="label flex items-center gap-2"><ShieldCheck size={12}/> Admin lens</div>
+              <p className="text-[12px] text-[var(--muted)] leading-relaxed mt-2">
+                Review studio quality, listings, reports, and moderation actions from Operations. Admin accounts do not follow, report, or commission studios.
+              </p>
+            </div>
+          ) : (
+            <button onClick={() => toggleFollow(artistId)} className={`swiss-btn ${isFollowing ? 'ghost' : ''} justify-center`}>
+              {isFollowing ? <><Check size={12}/> Following</> : <><Plus size={12}/> Follow</>}
+            </button>
+          )}
+          <button onClick={() => setTab('commissions')} className="swiss-btn ghost justify-center">
+            <Plus size={12}/> {isAdmin ? 'View commissions' : 'Commission this studio'}
           </button>
-          <button onClick={() => setTab('commissions')} className="swiss-btn ghost justify-center"><Plus size={12}/> Commission this studio</button>
-          <button onClick={() => onReport({ type: 'artist', id: artist.id, label: artist.name })} className="swiss-btn ghost justify-center"><Flag size={12}/> Report</button>
+          {!isAdmin && (
+            <button onClick={() => onReport({ type: 'artist', id: artist.id, label: artist.name })} className="swiss-btn ghost justify-center"><Flag size={12}/> Report</button>
+          )}
           <div className="hair-all p-4 mt-2">
             <div className="label">Office hours</div>
             <div className="mono text-[12px] mt-2">MON-THU · 09:00-15:00 CET</div>

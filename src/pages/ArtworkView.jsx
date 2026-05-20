@@ -4,10 +4,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft, ArrowRight, ArrowUpRight, Eye, Heart, Share2, Bookmark,
-  Flag, AlertCircle, Gavel, Send, Trash2,
+  Flag, AlertCircle, Gavel, Send, Trash2, ShieldCheck,
 } from 'lucide-react';
 import { ArtCard, ArtVisual } from '../components/shared';
-import { fmt, formatTime, relativeTime, authenticityMeta, isBuyerRole, isSellerRole } from '../lib/ui';
+import { fmt, formatTime, relativeTime, authenticityMeta, isBuyerRole, isSellerRole, isAdminRole } from '../lib/ui';
 import { ARTWORKS, artworkById, artistById } from '../lib/catalogue';
 import {
   minimumBidIncrement, minimumNextBid, auctionBuyerPremium,
@@ -17,7 +17,7 @@ import { fetchArtworkAuthenticity, fetchArtworkAuthenticitySeal, removeAiVote, s
 import { supabase } from '../lib/supabase';
 import { fetchArtworkComments, addArtworkComment, deleteArtworkComment } from '../lib/social';
 
-export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids, placeBid, purchases = [], recordPurchase, loadBidsForArtwork, onReport, user, role, refreshCatalogue }) => {
+export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids, placeBid, purchases = [], recordPurchase, loadBidsForArtwork, onReport, user, role, refreshCatalogue, onOpenAdminModeration }) => {
   const work = artworkById(workId);
   const artist = artistById(work.artist);
   const [bidInput, setBidInput] = useState(minimumNextBid(work.currentBid));
@@ -42,10 +42,12 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
   const authenticity = authenticityMeta(work.authenticityStatus);
   const isRestricted = work.authenticityStatus === 'restricted';
   const isArtistOwner = artist.profileId === user?.id;
+  const isAdmin = isAdminRole(role);
   const hasPurchased = (purchases || []).some(purchase => purchase.artworkId === work.id);
   const canVoteAi = (isBuyerRole(role) || isSellerRole(role)) && !isArtistOwner;
   const canSubmitProof = isSellerRole(role) && isArtistOwner;
   const canRecordPurchase = isBuyerRole(role) && !isArtistOwner;
+  const canComment = !isAdmin;
   useEffect(() => {
     const i = setInterval(() => setTimeLeft(t => Math.max(0, t - 1000)), 1000);
     return () => clearInterval(i);
@@ -101,6 +103,7 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
   }, [work.id]);
   const submitComment = async (event) => {
     event.preventDefault();
+    if (!canComment) { setCommentError('Admin accounts can review comments but cannot participate socially.'); return; }
     if (!user?.id) { setCommentError('Sign in to comment.'); return; }
     const body = commentDraft.trim();
     if (!body) return;
@@ -134,6 +137,10 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
   }, [work.id, currentTopBid]);
   const submitBid = async () => {
     setBidNotice('');
+    if (isAdmin) {
+      setBidNotice('Admin accounts cannot bid. Use the admin review and settlement tools instead.');
+      return;
+    }
     if (isRestricted) {
       setBidNotice('Bidding is paused until the artist submits process proof.');
       return;
@@ -229,10 +236,16 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
               </div>
               <div className="flex gap-3">
                 <button className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Eye size={12}/></button>
-                <button onClick={() => toggleLike(work.id)} className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Heart size={12} fill={likes[work.id] ? 'currentColor' : 'none'}/></button>
+                {!isAdmin && (
+                  <button onClick={() => toggleLike(work.id)} className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Heart size={12} fill={likes[work.id] ? 'currentColor' : 'none'}/></button>
+                )}
                 <button className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Share2 size={12}/></button>
-                <button className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Bookmark size={12}/></button>
-                <button onClick={() => onReport({ type: 'artwork', id: work.id, label: work.title })} className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--accent)] hover:text-white" aria-label="Report artwork"><Flag size={12}/></button>
+                {!isAdmin && <button className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Bookmark size={12}/></button>}
+                {isAdmin ? (
+                  <button onClick={() => onOpenAdminModeration?.(work.id)} className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--accent)] hover:text-white" aria-label="Open admin review"><ShieldCheck size={12}/></button>
+                ) : (
+                  <button onClick={() => onReport?.({ type: 'artwork', id: work.id, label: work.title })} className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--accent)] hover:text-white" aria-label="Report artwork"><Flag size={12}/></button>
+                )}
               </div>
             </div>
           </div>
@@ -286,7 +299,32 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
               </div>
             </div>
 
-            <div className="mt-6 hair-t pt-6">
+            {isAdmin ? (
+              <div className="mt-6 hair-t pt-6">
+                <div className="label mb-3">Admin auction lens</div>
+                <div className="hair-all p-4 bg-[var(--bg)]">
+                  <div className="display text-[22px] leading-tight">Bidding and acquisition are disabled for admin accounts.</div>
+                  <p className="text-[12px] text-[var(--muted)] mt-2 leading-relaxed">
+                    Use Operations for auction close-out, settlement review, and moderation decisions. Community-facing account actions stay with buyer and seller roles.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 mt-4">
+                    <div className="hair-all p-3">
+                      <div className="label">Min next bid</div>
+                      <div className="mono text-[18px] mt-1">${fmt(minNextBid)}</div>
+                    </div>
+                    <div className="hair-all p-3">
+                      <div className="label">Buyer total</div>
+                      <div className="mono text-[18px] mt-1">${fmt(auctionTotalCost(minNextBid))}</div>
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => onOpenAdminModeration?.(work.id)} className="swiss-btn ghost mt-4">
+                    Open moderation <ShieldCheck size={12}/>
+                  </button>
+                </div>
+                {bidNotice && <div className="mt-3 text-[12px] text-[var(--accent)]">{bidNotice}</div>}
+              </div>
+            ) : (
+              <div className="mt-6 hair-t pt-6">
               <div className="label mb-3">Place your bid</div>
               <div className="flex items-center gap-2">
                 <div className="hair-all flex-1 flex items-center px-3">
@@ -349,6 +387,7 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
                 ))}
               </div>
             </div>
+            )}
           </div>
 
           <div className="hair-all bg-[var(--card)] p-5">
@@ -364,7 +403,35 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
               </div>
             </div>
 
-            {canVoteAi && (
+            {isAdmin && (
+              <div className="mt-5 hair-t pt-5">
+                <div className="label mb-3">Admin AI review lens</div>
+                <div className="hair-all p-4 bg-[var(--bg)]">
+                  <p className="text-[13px] text-[var(--muted)] leading-relaxed">
+                    Community votes are signals. Admins decide whether to clear, verify proof, reject proof, or take down the listing from the moderation queue.
+                  </p>
+                  <div className="grid grid-cols-3 gap-3 mt-4">
+                    <div className="hair-all p-3">
+                      <div className="label">Votes</div>
+                      <div className="mono text-[18px] mt-1">{authState.votes.length}</div>
+                    </div>
+                    <div className="hair-all p-3">
+                      <div className="label">Proofs</div>
+                      <div className="mono text-[18px] mt-1">{authState.proofs.length}</div>
+                    </div>
+                    <div className="hair-all p-3">
+                      <div className="label">Status</div>
+                      <div className="mono text-[12px] mt-2 uppercase">{work.authenticityStatus || 'clear'}</div>
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => onOpenAdminModeration?.(work.id)} className="swiss-btn ghost mt-4">
+                    Open moderation <ArrowRight size={12}/>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!isAdmin && canVoteAi && (
               <div className="mt-5 hair-t pt-5">
                 <div className="label mb-3">{authState.ownVote ? 'Your vote is recorded' : 'Vote if this appears AI-generated'}</div>
                 {!authState.ownVote && (
@@ -388,7 +455,7 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
               </div>
             )}
 
-            {canSubmitProof && (
+            {!isAdmin && canSubmitProof && (
               <div className="mt-5 hair-t pt-5">
                 <div className="label mb-3">Artist process proof</div>
                 <div className="grid grid-cols-1 gap-3">
@@ -506,7 +573,7 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
               {tab === 'comments' && (
                 <div className="space-y-4">
                   {comments.length === 0 && (
-                    <div className="mono text-[11px] text-[var(--muted)]">No comments yet. Start the thread.</div>
+                    <div className="mono text-[11px] text-[var(--muted)]">{canComment ? 'No comments yet. Start the thread.' : 'No comments yet.'}</div>
                   )}
                   {comments.map((c) => (
                     <div key={c.id} className="hair-b pb-3">
@@ -517,7 +584,7 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <div className="mono text-[10px] text-[var(--muted)]">{relativeTime(c.createdAt)}</div>
-                          {c.userId === user?.id && (
+                          {canComment && c.userId === user?.id && (
                             <button type="button" onClick={() => removeComment(c.id)} className="hair-all w-6 h-6 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]" aria-label="Delete comment">
                               <Trash2 size={11}/>
                             </button>
@@ -527,18 +594,24 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
                       <p className="text-[13px] mt-1 text-[var(--ink-2)]">{c.body}</p>
                     </div>
                   ))}
-                  <form onSubmit={submitComment} className="hair-all p-3 flex gap-2">
-                    <input
-                      value={commentDraft}
-                      onChange={e => setCommentDraft(e.target.value)}
-                      className="swiss-input flex-1 border-none"
-                      placeholder="Add a comment..."
-                      maxLength={800}
-                    />
-                    <button type="submit" disabled={commentSending || !commentDraft.trim()} className={`swiss-btn ${commentSending || !commentDraft.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                      <Send size={12}/>
-                    </button>
-                  </form>
+                  {canComment ? (
+                    <form onSubmit={submitComment} className="hair-all p-3 flex gap-2">
+                      <input
+                        value={commentDraft}
+                        onChange={e => setCommentDraft(e.target.value)}
+                        className="swiss-input flex-1 border-none"
+                        placeholder="Add a comment..."
+                        maxLength={800}
+                      />
+                      <button type="submit" disabled={commentSending || !commentDraft.trim()} className={`swiss-btn ${commentSending || !commentDraft.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                        <Send size={12}/>
+                      </button>
+                    </form>
+                  ) : (
+                    <div className="hair-all p-3 mono text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
+                      Admin accounts can view comments here. Resolve comment issues through reports.
+                    </div>
+                  )}
                   {commentError && <div className="text-[12px] text-[var(--accent)]">{commentError}</div>}
                 </div>
               )}

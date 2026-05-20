@@ -37,6 +37,7 @@ export const roleLabel = (role) => ROLE_LABELS[role] || 'Buyer';
 export const isBuyerRole = (role) => role === 'buyer';
 export const isSellerRole = (role) => role === 'artist';
 export const isAdminRole = (role) => role === 'admin';
+export const isSocialParticipantRole = (role) => isBuyerRole(role) || isSellerRole(role);
 export const roleHomeView = (role) => {
   if (isSellerRole(role)) return 'studio';
   if (isAdminRole(role)) return 'admin';

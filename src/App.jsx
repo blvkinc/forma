@@ -11,7 +11,7 @@ import { useTrustSafety } from './hooks/useTrustSafety';
 import { useNotifications } from './hooks/useNotifications';
 import { useFormaMotion } from './hooks/useFormaMotion';
 import { createSellerArtist, createSellerArtwork, createSellerCommission, createSellerFeedPost, deleteSellerFeedPost, updateSellerFeedPost, uploadArtworkImage } from './lib/seller';
-import { fmt, roleLabel, isBuyerRole, isSellerRole, isAdminRole, APP_VIEWS, viewFromHash } from './lib/ui';
+import { fmt, roleLabel, isBuyerRole, isSellerRole, isAdminRole, isSocialParticipantRole, APP_VIEWS, viewFromHash } from './lib/ui';
 import { setCatalogue, artworkById, artistById } from './lib/catalogue';
 
 import { GlobalStyles } from './components/GlobalStyles';
@@ -50,6 +50,8 @@ export default function App() {
   const [bookingCommission, setBookingCommission] = useState(null);
   const [bookingReturnView, setBookingReturnView] = useState('commissions');
   const [threadBooking, setThreadBooking] = useState(null);
+  const [adminFocusArtwork, setAdminFocusArtwork] = useState(null);
+  const [adminInitialTab, setAdminInitialTab] = useState(null);
   const [sendingThreadMessage, setSendingThreadMessage] = useState(false);
   const [reportTarget, setReportTarget] = useState(null);
   const {
@@ -70,6 +72,10 @@ export default function App() {
 
   const navigateToView = (target) => {
     if (!APP_VIEWS.has(target)) return;
+    if (target !== 'admin') {
+      setAdminFocusArtwork(null);
+      setAdminInitialTab(null);
+    }
     setView(target);
     if (typeof window !== 'undefined') {
       const nextHash = target === 'home' ? '' : `#${target}`;
@@ -133,6 +139,11 @@ export default function App() {
 
   const goToArtwork = (id) => { setSelectedArtwork(id); navigateToView('artwork'); };
   const goToArtist = (id) => { setSelectedArtist(id); navigateToView('artist'); };
+  const openAdminModeration = (artworkId = null, initialTab = null) => {
+    setAdminFocusArtwork(artworkId || null);
+    setAdminInitialTab(initialTab || (artworkId ? 'moderation' : null));
+    navigateToView('admin');
+  };
 
   const showToast = (message, delay = 2400) => {
     setToast(message);
@@ -146,7 +157,11 @@ export default function App() {
   };
 
   const requireSocialAccount = (message = 'Sign in to use social actions.') => {
-    if (isAuthenticated) return true;
+    if (isAuthenticated && isSocialParticipantRole(role)) return true;
+    if (isAdminRole(role)) {
+      showToast('Admin accounts review social activity from the admin console.');
+      return false;
+    }
     showToast(message);
     return false;
   };
@@ -194,18 +209,12 @@ export default function App() {
   };
 
   const togglePostLike = async (id) => {
-    if (!isAuthenticated) {
-      showToast('Sign in to like feed posts.');
-      return false;
-    }
+    if (!requireSocialAccount('Sign in to like feed posts.')) return false;
     return marketplace.togglePostLike(id);
   };
 
   const toggleSavedPost = async (id) => {
-    if (!isAuthenticated) {
-      showToast('Sign in to save feed posts.');
-      return false;
-    }
+    if (!requireSocialAccount('Sign in to save feed posts.')) return false;
     const isSaved = await marketplace.toggleSavedPost(id);
     showToast(isSaved ? 'Saved feed post.' : 'Removed saved feed post.');
     return isSaved;
@@ -477,7 +486,7 @@ export default function App() {
         <Suspense fallback={<CatalogueLoadingState/>}>
           {view === 'home' && <HomeView goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} goExplore={() => navigateToView('explore')} goStudio={() => navigateToView('studio')}/>}
           {view === 'explore' && <ExploreView goToArtwork={goToArtwork} goToArtist={goToArtist} goFeed={() => navigateToView('feed')} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} query={query}/>}
-          {view === 'artwork' && selectedArtwork && <ArtworkView workId={selectedArtwork} goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} bids={bids} placeBid={placeBid} purchases={marketplace.purchases} recordPurchase={marketplace.recordArtworkPurchase} loadBidsForArtwork={marketplace.loadBidsForArtwork} onReport={openReport} user={user} role={role} refreshCatalogue={marketplace.refreshCatalogue}/>}
+          {view === 'artwork' && selectedArtwork && <ArtworkView workId={selectedArtwork} goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} bids={bids} placeBid={placeBid} purchases={marketplace.purchases} recordPurchase={marketplace.recordArtworkPurchase} loadBidsForArtwork={marketplace.loadBidsForArtwork} onReport={openReport} user={user} role={role} refreshCatalogue={marketplace.refreshCatalogue} onOpenAdminModeration={openAdminModeration}/>}
           {view === 'artist' && selectedArtist && <ArtistView artistId={selectedArtist} goToArtwork={goToArtwork} follows={follows} toggleFollow={toggleFollow} likes={likes} toggleLike={toggleLike} role={role} onBookCommission={openCommissionBooking} onReport={openReport}/>}
           {view === 'commissions' && <CommissionsView goToArtist={goToArtist} role={role} onBookCommission={openCommissionBooking}/>}
           {view === 'commission-booking' && bookingCommission && (
@@ -489,12 +498,12 @@ export default function App() {
               getPriceBreakdown={commissionState.getPriceBreakdown}
             />
           )}
-          {view === 'feed' && <FeedView goToArtwork={goToArtwork} goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow} canPost={isSellerRole(role) && profile?.verified === true && !!ownedArtist} onPost={handleCreateFeedPost} user={user} ownedArtist={ownedArtist} feedPosts={marketplace.feedPosts} artists={marketplace.artists} artworks={marketplace.artworks} postLikes={postLikes} togglePostLike={togglePostLike} savedPosts={savedPosts} toggleSavedPost={toggleSavedPost} onDeletePost={handleDeleteFeedPost} onEditPost={handleEditFeedPost} onRefresh={marketplace.refreshCatalogue} onReport={openReport}/>}
-          {view === 'artists' && <ArtistsView goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow}/>}
+          {view === 'feed' && <FeedView goToArtwork={goToArtwork} goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow} canPost={isSellerRole(role) && profile?.verified === true && !!ownedArtist} onPost={handleCreateFeedPost} user={user} ownedArtist={ownedArtist} feedPosts={marketplace.feedPosts} artists={marketplace.artists} artworks={marketplace.artworks} postLikes={postLikes} togglePostLike={togglePostLike} savedPosts={savedPosts} toggleSavedPost={toggleSavedPost} onDeletePost={handleDeleteFeedPost} onEditPost={handleEditFeedPost} onRefresh={marketplace.refreshCatalogue} onReport={openReport} role={role} onOpenAdmin={() => openAdminModeration(null, 'social')}/>}
+          {view === 'artists' && <ArtistsView goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow} role={role}/>}
           {view === 'profile' && <ProfileView user={user} profile={profile} role={role} updateProfile={updateProfile} marketplace={marketplace} setView={navigateToView} goToArtwork={goToArtwork} goToArtist={goToArtist} toggleFollow={toggleFollow}/>}
           {view === 'dashboard' && canViewDashboard && <BuyerDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} userBids={userBids} purchases={marketplace.purchases} auctionSettlements={marketplace.auctionSettlements} artworks={marketplace.artworks} watchlist={watchlist} toggleWatch={toggleWatch} profile={profile} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} setView={navigateToView}/>}
           {view === 'studio' && canViewStudio && <StudioDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} profile={profile} ownedArtist={ownedArtist} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} onSubmitStudio={handleCreateSellerArtist} onSubmitArtwork={handleCreateSellerArtwork} onUploadArtworkImage={uploadArtworkImage} onSubmitCommission={handleCreateSellerCommission}/>}
-          {view === 'admin' && canViewAdmin && <AdminDashboard goToArtist={goToArtist} goToArtwork={goToArtwork} trustState={trustState} profile={profile} user={user}/>}
+          {view === 'admin' && canViewAdmin && <AdminDashboard goToArtist={goToArtist} goToArtwork={goToArtwork} goToFeed={() => navigateToView('feed')} trustState={trustState} profile={profile} user={user} initialModerationArtworkId={adminFocusArtwork} initialTab={adminInitialTab}/>}
           {(view === 'terms' || view === 'privacy' || view === 'trust' || view === 'api') && <InfoView page={view} goBack={() => navigateToView('home')}/>}
         </Suspense>
       )}

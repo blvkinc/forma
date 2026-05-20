@@ -3,13 +3,14 @@
 // ============================================================
 import React, { useMemo, useState } from 'react';
 import { ArrowUpRight, Check, Plus } from 'lucide-react';
-import { fmt, normalizeText } from '../lib/ui';
+import { fmt, normalizeText, isAdminRole } from '../lib/ui';
 import { ARTISTS, ARTWORKS, COMMISSIONS } from '../lib/catalogue';
 
-export const ArtistsView = ({ goToArtist, follows, toggleFollow }) => {
+export const ArtistsView = ({ goToArtist, follows, toggleFollow, role }) => {
   const [search, setSearch] = useState('');
   const [city, setCity] = useState('all');
   const [openOnly, setOpenOnly] = useState(false);
+  const isAdmin = isAdminRole(role);
 
   const cities = useMemo(
     () => ['all', ...Array.from(new Set(ARTISTS.map(a => a.city).filter(Boolean))).sort()],
@@ -99,9 +100,15 @@ export const ArtistsView = ({ goToArtist, follows, toggleFollow }) => {
                     <span>{works.length} works</span>
                     {hasOpen && <span className="text-[var(--good)]">Open slots</span>}
                   </div>
-                  <button onClick={() => toggleFollow(a.id)} className={`mono text-[10px] uppercase tracking-[0.1em] px-3 py-1.5 transition-colors ${f ? 'hair-all text-[var(--muted)]' : 'bg-[var(--ink)] text-[var(--bg)]'}`}>
-                    {f ? <><Check size={10} className="inline mr-1"/> Following</> : <><Plus size={10} className="inline mr-1"/> Follow</>}
-                  </button>
+                  {isAdmin ? (
+                    <button onClick={() => goToArtist(a.id)} className="mono text-[10px] uppercase tracking-[0.1em] px-3 py-1.5 transition-colors hair-all hover:bg-[var(--ink)] hover:text-[var(--bg)]">
+                      Open
+                    </button>
+                  ) : (
+                    <button onClick={() => toggleFollow(a.id)} className={`mono text-[10px] uppercase tracking-[0.1em] px-3 py-1.5 transition-colors ${f ? 'hair-all text-[var(--muted)]' : 'bg-[var(--ink)] text-[var(--bg)]'}`}>
+                      {f ? <><Check size={10} className="inline mr-1"/> Following</> : <><Plus size={10} className="inline mr-1"/> Follow</>}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
