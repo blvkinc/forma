@@ -5,13 +5,9 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 let registered = false;
 
 const TEXT_SELECTOR = [
-  'main h1.display',
-  'main h2.display',
-  'main h3.display',
-  'main p',
-  'main .label',
-  '.motion-copy',
-  '[data-reveal]',
+  'main h1',
+  'main h2',
+  'main h3',
 ].join(',');
 
 const CARD_SELECTOR = [
@@ -38,7 +34,7 @@ function prefersReducedMotion() {
 function shouldSkipText(node) {
   if (node.closest('header, footer, .fixed, .user-menu-panel, .notif-menu')) return true;
   if (node.closest('button, a, input, textarea, select')) return true;
-  if (node.closest('.motion-card') && !node.matches('h1, h2, h3')) return true;
+  if (node.closest('.motion-card')) return true;
   return !node.textContent?.trim();
 }
 
