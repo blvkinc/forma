@@ -69,7 +69,7 @@ export const CommissionCard = ({ commission, role, onBookCommission }) => {
   );
 };
 
-export const CommissionBookingModal = ({ commission, role, onClose, onConfirm, getPriceBreakdown }) => {
+export const CommissionBookingView = ({ commission, role, onClose, onConfirm, getPriceBreakdown }) => {
   const [briefText, setBriefText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -91,17 +91,15 @@ export const CommissionBookingModal = ({ commission, role, onClose, onConfirm, g
   };
 
   return (
-    <div className="fixed inset-0 z-[260] bg-[rgba(14,14,12,0.42)] backdrop-blur-sm flex items-center justify-center p-4">
-      <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full max-w-[640px] max-h-[92vh] overflow-y-auto shadow-[0_24px_80px_rgba(14,14,12,0.22)]">
-        <div className="p-6 hair-b flex items-start justify-between gap-4">
-          <div>
-            <div className="label">Commission booking</div>
-            <h2 className="display text-[34px] mt-2">{commission.title}</h2>
-            <div className="mono text-[11px] text-[var(--muted)] mt-2">with {artist.handle}</div>
-          </div>
-          <button type="button" onClick={onClose} className="hair-all w-9 h-9 inline-flex items-center justify-center hover:bg-[var(--bg-2)]" aria-label="Close booking">
-            <X size={16}/>
-          </button>
+    <main className="fade-in max-w-[960px] mx-auto px-8 py-12">
+      <button type="button" onClick={onClose} className="swiss-btn ghost mb-6" aria-label="Back">
+        <X size={12}/> Back
+      </button>
+      <form onSubmit={submit} className="hair-all bg-[var(--card)]">
+        <div className="p-6 hair-b">
+          <div className="label">Commission booking</div>
+          <h2 className="display text-[34px] mt-2">{commission.title}</h2>
+          <div className="mono text-[11px] text-[var(--muted)] mt-2">with {artist.handle}</div>
         </div>
 
         <div className="p-6 space-y-5">
@@ -155,7 +153,7 @@ export const CommissionBookingModal = ({ commission, role, onClose, onConfirm, g
           </button>
         </div>
       </form>
-    </div>
+    </main>
   );
 };
 

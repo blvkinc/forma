@@ -76,7 +76,7 @@ export const PRICE_BANDS = [
 ];
 
 export const APP_VIEWS = new Set([
-  'home', 'explore', 'artwork', 'artist', 'commissions',
+  'home', 'explore', 'artwork', 'artist', 'commissions', 'commission-booking',
   'feed', 'artists', 'profile', 'dashboard', 'studio', 'admin',
   'terms', 'privacy', 'trust', 'api', 'verify',
 ]);

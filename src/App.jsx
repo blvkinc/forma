@@ -16,7 +16,7 @@ import { setCatalogue, artworkById, artistById } from './lib/catalogue';
 
 import { GlobalStyles } from './components/GlobalStyles';
 import { Header, Footer, CatalogueLoadingState, CatalogueErrorState } from './components/shared';
-import { CommissionBookingModal, CommissionThreadModal } from './features/commissions';
+import { CommissionBookingView, CommissionThreadModal } from './features/commissions';
 import { ReportModal } from './features/ReportModal';
 // Code-split each view so the initial bundle stays small.
 const named = (p, name) => lazy(() => p().then(m => ({ default: m[name] })));
@@ -48,6 +48,7 @@ export default function App() {
   const [selectedArtwork, setSelectedArtwork] = useState(null);
   const [selectedArtist, setSelectedArtist] = useState(null);
   const [bookingCommission, setBookingCommission] = useState(null);
+  const [bookingReturnView, setBookingReturnView] = useState('commissions');
   const [threadBooking, setThreadBooking] = useState(null);
   const [sendingThreadMessage, setSendingThreadMessage] = useState(false);
   const [reportTarget, setReportTarget] = useState(null);
@@ -90,6 +91,12 @@ export default function App() {
     const hashView = viewFromHash();
     if (hashView !== view) setView(hashView);
   });
+
+  useEffect(() => {
+    if (view === 'commission-booking' && !bookingCommission) {
+      navigateToView(bookingReturnView || 'commissions');
+    }
+  }, [view, bookingCommission]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
@@ -225,7 +232,14 @@ export default function App() {
       showToast('This commission board is full.');
       return;
     }
+    setBookingReturnView(APP_VIEWS.has(view) && view !== 'commission-booking' ? view : 'commissions');
     setBookingCommission(commission);
+    navigateToView('commission-booking');
+  };
+
+  const closeCommissionBooking = () => {
+    setBookingCommission(null);
+    navigateToView(bookingReturnView || 'commissions');
   };
 
   const confirmCommissionBooking = async (briefText) => {
@@ -241,6 +255,7 @@ export default function App() {
       setThreadBooking(result.data);
       await commissionState.openThread(result.data.id);
     }
+    navigateToView(bookingReturnView || 'commissions');
     showToast('Commission slot booked. Project thread opened.');
     return result;
   };
@@ -465,6 +480,15 @@ export default function App() {
           {view === 'artwork' && selectedArtwork && <ArtworkView workId={selectedArtwork} goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} bids={bids} placeBid={placeBid} purchases={marketplace.purchases} recordPurchase={marketplace.recordArtworkPurchase} loadBidsForArtwork={marketplace.loadBidsForArtwork} onReport={openReport} user={user} role={role} refreshCatalogue={marketplace.refreshCatalogue}/>}
           {view === 'artist' && selectedArtist && <ArtistView artistId={selectedArtist} goToArtwork={goToArtwork} follows={follows} toggleFollow={toggleFollow} likes={likes} toggleLike={toggleLike} role={role} onBookCommission={openCommissionBooking} onReport={openReport}/>}
           {view === 'commissions' && <CommissionsView goToArtist={goToArtist} role={role} onBookCommission={openCommissionBooking}/>}
+          {view === 'commission-booking' && bookingCommission && (
+            <CommissionBookingView
+              commission={bookingCommission}
+              role={role}
+              onClose={closeCommissionBooking}
+              onConfirm={confirmCommissionBooking}
+              getPriceBreakdown={commissionState.getPriceBreakdown}
+            />
+          )}
           {view === 'feed' && <FeedView goToArtwork={goToArtwork} goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow} canPost={isSellerRole(role) && profile?.verified === true && !!ownedArtist} onPost={handleCreateFeedPost} user={user} ownedArtist={ownedArtist} feedPosts={marketplace.feedPosts} artists={marketplace.artists} artworks={marketplace.artworks} postLikes={postLikes} togglePostLike={togglePostLike} savedPosts={savedPosts} toggleSavedPost={toggleSavedPost} onDeletePost={handleDeleteFeedPost} onEditPost={handleEditFeedPost} onRefresh={marketplace.refreshCatalogue} onReport={openReport}/>}
           {view === 'artists' && <ArtistsView goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow}/>}
           {view === 'profile' && <ProfileView user={user} profile={profile} role={role} updateProfile={updateProfile} marketplace={marketplace} setView={navigateToView} goToArtwork={goToArtwork} goToArtist={goToArtist} toggleFollow={toggleFollow}/>}
@@ -475,13 +499,6 @@ export default function App() {
         </Suspense>
       )}
 
-      <CommissionBookingModal
-        commission={bookingCommission}
-        role={role}
-        onClose={() => setBookingCommission(null)}
-        onConfirm={confirmCommissionBooking}
-        getPriceBreakdown={commissionState.getPriceBreakdown}
-      />
       <CommissionThreadModal
         booking={threadBooking}
         activeThread={commissionState.activeThread}
