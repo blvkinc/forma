@@ -105,7 +105,7 @@ export default function App() {
     if (!root) return undefined;
     root.classList.add('reveal-ready');
 
-    const selector = [
+    const textSelector = [
       'main h1.display',
       'main h2.display',
       'main h3.display',
@@ -113,7 +113,14 @@ export default function App() {
       '.motion-copy',
       '.motion-stat',
       '[data-reveal]',
-      '.art-card',
+    ].join(',');
+    const cardSelector = [
+      'main .art-card',
+      'main .motion-card',
+      'main .motion-stat',
+      'main .motion-copy',
+      'main [class*="hair-all"][class*="bg-[var(--card)]"]',
+      'main [style*="background: var(--card)"]',
     ].join(',');
 
     const canObserve = 'IntersectionObserver' in window;
@@ -150,24 +157,47 @@ export default function App() {
       });
     }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 }) : null;
 
-    const prepareNodes = () => {
-      const nodes = Array.from(root.querySelectorAll(selector))
-        .filter(node => !node.closest('header, footer'));
+    const shouldSkipCard = (node) => {
+      if (node.closest('header, footer, .fixed, .user-menu-panel, .notif-menu')) return true;
+      if (node.matches('button, a, input, textarea, select, option')) return true;
+      if (node.closest('button, a') && !node.classList.contains('art-card')) return true;
+      if (node.classList.contains('sticky')) return true;
+      const rect = node.getBoundingClientRect();
+      return rect.width < 132 || rect.height < 56;
+    };
 
-      nodes.forEach((node, index) => {
-        if (!node.classList.contains('motion-reveal')) {
-          node.classList.add('motion-reveal');
-          node.style.setProperty('--reveal-delay', `${Math.min(index % 6, 5) * 70}ms`);
-        }
-        if (!canObserve) {
-          revealNode(node);
-          return;
-        }
-        if (!node.classList.contains('revealed') && !observedNodes.has(node)) {
-          observedNodes.add(node);
-          observer.observe(node);
-        }
-      });
+    const prepareNode = (node, index, kind = 'text') => {
+      if (!node.classList.contains('motion-reveal')) {
+        node.classList.add('motion-reveal');
+        node.style.setProperty('--reveal-delay', `${Math.min(index % 8, 7) * 58}ms`);
+      }
+      if (kind === 'card') {
+        node.classList.add('motion-card');
+        node.style.setProperty('--card-rotate', `${((index % 5) - 2) * 0.16}deg`);
+      } else {
+        node.classList.add('motion-text');
+      }
+      if (!canObserve) {
+        revealNode(node);
+        return;
+      }
+      if (!node.classList.contains('revealed') && !observedNodes.has(node)) {
+        observedNodes.add(node);
+        observer.observe(node);
+      }
+    };
+
+    const prepareNodes = () => {
+      const cardNodes = Array.from(root.querySelectorAll(cardSelector))
+        .filter(node => !shouldSkipCard(node));
+
+      cardNodes.forEach((node, index) => prepareNode(node, index, 'card'));
+
+      const textNodes = Array.from(root.querySelectorAll(textSelector))
+        .filter(node => !node.closest('header, footer, .fixed, .user-menu-panel, .notif-menu'))
+        .filter(node => !node.closest('.motion-card') || node.matches('h1, h2, h3'));
+
+      textNodes.forEach((node, index) => prepareNode(node, index, 'text'));
       scheduleVisibleScan();
     };
 

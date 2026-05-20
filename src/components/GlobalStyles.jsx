@@ -24,6 +24,8 @@ export const GlobalStyles = () => (
       --accent-soft: rgba(233, 120, 100, 0.16);
       --good: #1F6B3A;
       --paper-shadow: 0 20px 52px rgba(14, 14, 12, 0.08);
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-soft: cubic-bezier(0.2, 0.75, 0.18, 1);
     }
 
     .swiss-app * {
@@ -237,17 +239,17 @@ export const GlobalStyles = () => (
 
     /* Page/view entrance: a touch more presence than a bare fade. */
     .fade-in {
-      animation: forma-rise 0.6s cubic-bezier(0.16, 0.9, 0.24, 1) both;
+      animation: forma-rise 0.68s var(--ease-out) both;
       opacity: 0;
     }
     @keyframes forma-rise {
-      from { opacity: 0; transform: translateY(16px) scale(0.992); }
-      to   { opacity: 1; transform: translateY(0) scale(1); }
+      from { opacity: 0; transform: translateY(18px) scale(0.99); filter: blur(4px); }
+      to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
     }
 
     /* Header settles in on load. */
     .swiss-app > header {
-      animation: forma-header 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      animation: forma-header 0.54s var(--ease-soft) both;
     }
     @keyframes forma-header {
       from { opacity: 0; transform: translateY(-8px); }
@@ -256,55 +258,72 @@ export const GlobalStyles = () => (
 
     /* Scroll reveal — App attaches an IntersectionObserver and adds
        .reveal-ready to .swiss-app, so without JS cards stay visible. */
-    .swiss-app.reveal-ready .art-card {
+    .swiss-app.reveal-ready .motion-card {
       opacity: 0;
-      transform: translateY(22px) scale(0.97);
-      will-change: opacity, transform;
-    }
-    .swiss-app.reveal-ready .art-card.revealed {
-      opacity: 1;
-      transform: none;
-      transition:
-        opacity 0.6s ease var(--reveal-delay, 0ms),
-        transform 0.7s cubic-bezier(0.16, 0.9, 0.24, 1) var(--reveal-delay, 0ms);
-    }
-
-    .swiss-app.reveal-ready .motion-reveal {
-      opacity: 0;
-      transform: translateY(18px);
-      filter: blur(3px);
+      transform:
+        perspective(1200px)
+        translate3d(0, 26px, 0)
+        rotate(var(--card-rotate, 0deg))
+        scale(0.982);
+      transform-origin: 50% 85%;
+      filter: blur(4px);
       will-change: opacity, transform, filter;
     }
-
-    .swiss-app.reveal-ready .motion-reveal.revealed {
+    .swiss-app.reveal-ready .motion-card.revealed {
       opacity: 1;
-      transform: translateY(0);
+      transform:
+        perspective(1200px)
+        translate3d(0, 0, 0)
+        rotate(0deg)
+        scale(1);
       filter: blur(0);
       transition:
-        opacity 0.6s ease var(--reveal-delay, 0ms),
-        transform 0.7s cubic-bezier(0.16, 0.9, 0.24, 1) var(--reveal-delay, 0ms),
-        filter 0.7s ease var(--reveal-delay, 0ms);
+        opacity 0.72s ease var(--reveal-delay, 0ms),
+        transform 0.9s var(--ease-out) var(--reveal-delay, 0ms),
+        filter 0.8s ease var(--reveal-delay, 0ms);
     }
 
-    .swiss-app.reveal-ready main h1.display.motion-reveal:not(.revealed),
-    .swiss-app.reveal-ready main h2.display.motion-reveal:not(.revealed),
-    .swiss-app.reveal-ready main h3.display.motion-reveal:not(.revealed) {
-      transform: translateY(30px) scale(0.985);
-      filter: blur(3px);
+    .swiss-app.reveal-ready .motion-text {
+      opacity: 0;
+      transform: translate3d(0, 18px, 0);
+      clip-path: inset(0 0 18% 0);
+      filter: blur(4px);
+      will-change: opacity, transform, filter, clip-path;
+    }
+
+    .swiss-app.reveal-ready .motion-text.revealed {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+      clip-path: inset(0 0 0 0);
+      filter: blur(0);
+      transition:
+        opacity 0.68s ease var(--reveal-delay, 0ms),
+        transform 0.82s var(--ease-out) var(--reveal-delay, 0ms),
+        clip-path 0.82s var(--ease-out) var(--reveal-delay, 0ms),
+        filter 0.75s ease var(--reveal-delay, 0ms);
+    }
+
+    .swiss-app.reveal-ready main h1.display.motion-text:not(.revealed),
+    .swiss-app.reveal-ready main h2.display.motion-text:not(.revealed),
+    .swiss-app.reveal-ready main h3.display.motion-text:not(.revealed) {
+      transform: translate3d(0, 0.62em, 0) scale(0.985);
+      clip-path: inset(0 0 28% 0);
+      filter: blur(6px);
       transform-origin: left bottom;
     }
-    .swiss-app.reveal-ready main h1.display.motion-reveal.revealed,
-    .swiss-app.reveal-ready main h2.display.motion-reveal.revealed,
-    .swiss-app.reveal-ready main h3.display.motion-reveal.revealed {
-      transform: translateY(0) scale(1);
+    .swiss-app.reveal-ready main h1.display.motion-text.revealed,
+    .swiss-app.reveal-ready main h2.display.motion-text.revealed,
+    .swiss-app.reveal-ready main h3.display.motion-text.revealed {
+      transform: translate3d(0, 0, 0) scale(1);
       transition:
-        opacity 0.7s ease var(--reveal-delay, 0ms),
-        transform 0.8s cubic-bezier(0.16, 0.95, 0.22, 1) var(--reveal-delay, 0ms),
-        filter 0.7s ease var(--reveal-delay, 0ms);
+        opacity 0.78s ease var(--reveal-delay, 0ms),
+        transform 1s var(--ease-out) var(--reveal-delay, 0ms),
+        clip-path 1s var(--ease-out) var(--reveal-delay, 0ms),
+        filter 0.9s ease var(--reveal-delay, 0ms);
     }
 
     .swiss-app.reveal-ready .motion-stat.revealed .mono {
-      animation: forma-number-settle 0.52s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      animation: forma-number-settle 0.58s var(--ease-soft) both;
       animation-delay: var(--reveal-delay, 0ms);
     }
 
@@ -319,11 +338,12 @@ export const GlobalStyles = () => (
     .art-card .hair-all.relative > svg,
     .art-card .hair-all.relative > div > img,
     .art-card .hair-all.relative > div > svg {
-      transition: transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+      transition: transform 0.95s var(--ease-out), filter 0.95s ease;
     }
     .art-card:hover .hair-all.relative img,
     .art-card:hover .hair-all.relative svg {
-      transform: scale(1.07);
+      transform: scale(1.055);
+      filter: saturate(1.02) contrast(1.02);
     }
 
     /* Tactile press + consistent easing on controls. */
@@ -335,7 +355,7 @@ export const GlobalStyles = () => (
         color 0.15s ease,
         border-color 0.15s ease,
         box-shadow 0.2s ease,
-        transform 0.18s cubic-bezier(0.16, 0.9, 0.24, 1);
+        transform 0.2s var(--ease-out);
     }
     .swiss-app .swiss-btn:hover {
       transform: translateY(-2px);
@@ -372,6 +392,40 @@ export const GlobalStyles = () => (
       to   { opacity: 1; transform: translate(-50%, 0); }
     }
 
+    .motion-card:not(.art-card):not(form) {
+      position: relative;
+      isolation: isolate;
+      transition:
+        background-color 0.24s ease,
+        border-color 0.24s ease,
+        box-shadow 0.42s ease,
+        transform 0.42s var(--ease-out);
+    }
+
+    .motion-card:not(.art-card):not(form)::before {
+      content: '';
+      position: absolute;
+      left: -1px;
+      right: -1px;
+      top: -1px;
+      height: 1px;
+      pointer-events: none;
+      background: linear-gradient(90deg, transparent, rgba(233, 120, 100, 0.72), transparent);
+      opacity: 0;
+      transform: translateX(-18%);
+      transition: opacity 0.28s ease, transform 0.58s var(--ease-out);
+    }
+
+    .motion-card:not(.art-card):not(form):hover {
+      transform: translate3d(0, -5px, 0);
+      box-shadow: 0 24px 58px rgba(14, 14, 12, 0.11);
+    }
+
+    .motion-card:not(.art-card):not(form):hover::before {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
     /* Live status dots get a soft pulse instead of a hard blink. */
     .blink {
       animation: forma-pulse 1.8s ease-in-out infinite;
@@ -390,25 +444,27 @@ export const GlobalStyles = () => (
         transition-duration: 0.001ms !important;
         scroll-behavior: auto !important;
       }
-      .swiss-app.reveal-ready .art-card,
+      .swiss-app.reveal-ready .motion-card,
+      .swiss-app.reveal-ready .motion-text,
       .swiss-app.reveal-ready .motion-reveal {
         opacity: 1;
         transform: none;
         filter: none;
+        clip-path: none;
       }
     }
 
     .art-card {
-      transition: transform 0.35s cubic-bezier(0.16, 0.9, 0.24, 1);
+      transition: transform 0.46s var(--ease-out);
     }
-    .art-card:hover { transform: translateY(-6px); }
+    .art-card:hover { transform: translateY(-7px); }
     .art-card:hover .art-arrow { transform: translate(3px, -3px); }
-    .art-arrow { transition: transform 0.3s cubic-bezier(0.16, 0.9, 0.24, 1); }
+    .art-arrow { transition: transform 0.36s var(--ease-out); }
 
     .art-card .hair-all.relative {
       background: var(--card);
       box-shadow: var(--paper-shadow);
-      transition: box-shadow 0.35s ease, transform 0.35s cubic-bezier(0.16, 0.9, 0.24, 1);
+      transition: box-shadow 0.46s ease, transform 0.46s var(--ease-out);
     }
     .art-card:hover .hair-all.relative {
       box-shadow: 0 26px 60px rgba(14, 14, 12, 0.16);
