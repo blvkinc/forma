@@ -17,6 +17,7 @@ export const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes
   const liveValue = liveWorks.reduce((sum, w) => sum + Number(w.currentBid || 0), 0);
   const [tab, setTab] = useState('works');
   const isFollowing = follows[artistId];
+  const followerCount = Number(artist.followers || 0);
 
   return (
     <main className="fade-in max-w-[1440px] mx-auto px-8 py-10">
@@ -44,7 +45,7 @@ export const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes
           <div className="mt-8 grid grid-cols-4 gap-6">
             <div className="hair-t pt-3">
               <div className="label">Followers</div>
-              <div className="mono text-[24px] mt-1">{fmt(artist.followers + (isFollowing?1:0))}</div>
+              <div className="mono text-[24px] mt-1">{fmt(followerCount)}</div>
             </div>
             <div className="hair-t pt-3">
               <div className="label">Works</div>
@@ -149,7 +150,7 @@ export const ArtistView = ({ artistId, goToArtwork, follows, toggleFollow, likes
                 <span className="text-[var(--muted)]">Handle</span><span>{artist.handle}</span>
                 <span className="text-[var(--muted)]">Based in</span><span>{artist.city}</span>
                 <span className="text-[var(--muted)]">Active since</span><span>{artist.joined}</span>
-                <span className="text-[var(--muted)]">Followers</span><span>{fmt(artist.followers + (isFollowing ? 1 : 0))}</span>
+                <span className="text-[var(--muted)]">Followers</span><span>{fmt(followerCount)}</span>
                 <span className="text-[var(--muted)]">Live works</span><span>{liveWorks.length}</span>
                 <span className="text-[var(--muted)]">Verified</span><span>{artist.verified ? 'Yes' : 'Not yet'}</span>
               </div>

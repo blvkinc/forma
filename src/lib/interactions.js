@@ -83,12 +83,13 @@ export async function fetchUserLikes(userId) {
 
 export async function toggleLike(userId, artworkId) {
   // Check if already liked
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupError } = await supabase
     .from('user_likes')
     .select('artwork_id')
     .eq('user_id', userId)
     .eq('artwork_id', artworkId)
     .maybeSingle();
+  if (lookupError) throw lookupError;
 
   if (existing) {
     // Unlike
@@ -103,7 +104,7 @@ export async function toggleLike(userId, artworkId) {
     // Like
     const { error } = await supabase
       .from('user_likes')
-      .insert({ user_id: userId, artwork_id: artworkId });
+      .upsert({ user_id: userId, artwork_id: artworkId }, { onConflict: 'user_id,artwork_id' });
     if (error) throw error;
     return true; // now liked
   }
@@ -123,12 +124,13 @@ export async function fetchUserFollows(userId) {
 }
 
 export async function toggleFollow(userId, artistId) {
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupError } = await supabase
     .from('user_follows')
     .select('artist_id')
     .eq('user_id', userId)
     .eq('artist_id', artistId)
     .maybeSingle();
+  if (lookupError) throw lookupError;
 
   if (existing) {
     const { error } = await supabase
@@ -141,7 +143,7 @@ export async function toggleFollow(userId, artistId) {
   } else {
     const { error } = await supabase
       .from('user_follows')
-      .insert({ user_id: userId, artist_id: artistId });
+      .upsert({ user_id: userId, artist_id: artistId }, { onConflict: 'user_id,artist_id' });
     if (error) throw error;
     return true;
   }

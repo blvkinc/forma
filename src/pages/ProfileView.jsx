@@ -2,12 +2,12 @@
 // FORMA — Profile / account settings
 // ============================================================
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, Check, Lock, Mail, Trash2, AlertCircle } from 'lucide-react';
-import { roleLabel, isBuyerRole, isSellerRole, isAdminRole } from '../lib/ui';
+import { ArrowRight, Check, Lock, Mail, Trash2, AlertCircle, UserPlus, Heart, Bookmark } from 'lucide-react';
+import { roleLabel, isBuyerRole, isSellerRole, isAdminRole, fmt, relativeTime } from '../lib/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadAvatar } from '../lib/account';
 
-export const ProfileView = ({ user, profile, role, updateProfile, marketplace, setView }) => {
+export const ProfileView = ({ user, profile, role, updateProfile, marketplace, setView, goToArtwork, goToArtist, toggleFollow }) => {
   const [form, setForm] = useState({
     display_name: profile?.display_name || '',
     handle: profile?.handle || '',
@@ -115,6 +115,9 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
   const followCount = Object.keys(marketplace.follows || {}).length;
   const watchCount = Object.keys(marketplace.watchlist || {}).length;
   const bidCount = Object.values(marketplace.bids || {}).reduce((total, rows) => total + rows.length, 0);
+  const followedStudios = (marketplace.artists || []).filter(artist => marketplace.follows?.[artist.id]);
+  const likedWorks = (marketplace.artworks || []).filter(work => marketplace.likes?.[work.id]);
+  const savedFeedPosts = (marketplace.feedPosts || []).filter(post => marketplace.savedPosts?.[post.id]);
 
   const shortcuts = [
     { show: isBuyerRole(role), target: 'dashboard', label: 'Buyer dashboard', desc: 'Watchlist, bids, and collecting activity.' },
@@ -248,6 +251,94 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
               </div>
             </div>
           </form>
+
+          <div className="hair-all bg-[var(--card)] p-6">
+            <div className="flex justify-between items-start gap-4 hair-b pb-5 mb-6">
+              <div>
+                <div className="label">Social graph</div>
+                <h2 className="display text-[32px] mt-2">Your network.</h2>
+              </div>
+              <button type="button" onClick={() => setView('feed')} className="swiss-btn ghost">
+                Open feed <ArrowRight size={12}/>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <section className="hair-all p-4 min-h-[260px]">
+                <div className="label flex items-center gap-2"><UserPlus size={12}/> Following</div>
+                <div className="space-y-3 mt-4">
+                  {followedStudios.slice(0, 5).map(artist => (
+                    <div key={artist.id} className="hair-b pb-3 last:border-0 last:pb-0">
+                      <button type="button" onClick={() => goToArtist?.(artist.id)} className="w-full text-left group">
+                        <div className="flex items-center gap-3">
+                          <span className="w-8 h-8 flex-shrink-0 hair-all" style={{ background: artist.accent }}/>
+                          <span className="min-w-0">
+                            <span className="block text-[13px] font-medium truncate group-hover:underline">{artist.name}</span>
+                            <span className="block mono text-[10px] text-[var(--muted)] truncate">{artist.handle} · {fmt(Number(artist.followers || 0))}</span>
+                          </span>
+                        </div>
+                      </button>
+                      <button type="button" onClick={() => toggleFollow?.(artist.id)} className="mono text-[10px] uppercase tracking-[0.1em] text-[var(--muted)] hover:text-[var(--accent)] mt-2">
+                        Unfollow
+                      </button>
+                    </div>
+                  ))}
+                  {followedStudios.length === 0 && (
+                    <div className="text-[13px] text-[var(--muted)] leading-relaxed">
+                      Follow studios to build a personal feed.
+                      <button type="button" onClick={() => setView('artists')} className="block mono text-[10px] uppercase tracking-[0.1em] text-[var(--ink)] mt-3 hover:underline">
+                        Browse studios
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="hair-all p-4 min-h-[260px]">
+                <div className="label flex items-center gap-2"><Bookmark size={12}/> Saved posts</div>
+                <div className="space-y-3 mt-4">
+                  {savedFeedPosts.slice(0, 4).map(post => {
+                    const artist = (marketplace.artists || []).find(item => item.id === post.artist);
+                    return (
+                      <button key={post.id} type="button" onClick={() => setView('feed')} className="w-full hair-b pb-3 last:border-0 last:pb-0 text-left group">
+                        <span className="block text-[13px] leading-snug line-clamp-2 group-hover:underline">{post.text}</span>
+                        <span className="block mono text-[10px] text-[var(--muted)] mt-2">
+                          {artist?.handle || 'studio'} · {relativeTime(post.createdAt)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {savedFeedPosts.length === 0 && (
+                    <div className="text-[13px] text-[var(--muted)] leading-relaxed">
+                      Saved studio posts will collect here.
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="hair-all p-4 min-h-[260px]">
+                <div className="label flex items-center gap-2"><Heart size={12}/> Liked works</div>
+                <div className="space-y-3 mt-4">
+                  {likedWorks.slice(0, 5).map(work => {
+                    const artist = (marketplace.artists || []).find(item => item.id === work.artist);
+                    return (
+                      <button key={work.id} type="button" onClick={() => goToArtwork?.(work.id)} className="w-full hair-b pb-3 last:border-0 last:pb-0 text-left group">
+                        <span className="block display text-[18px] leading-tight group-hover:underline">{work.title}</span>
+                        <span className="block mono text-[10px] text-[var(--muted)] mt-1">
+                          {artist?.name || 'Unknown studio'} · ${fmt(Number(work.currentBid || 0))}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {likedWorks.length === 0 && (
+                    <div className="text-[13px] text-[var(--muted)] leading-relaxed">
+                      Like artworks to keep a lightweight taste board.
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+          </div>
 
           <div className="grid grid-cols-2 gap-6">
             <div className="hair-all bg-[var(--card)] p-6">

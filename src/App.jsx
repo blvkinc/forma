@@ -138,6 +138,12 @@ export default function App() {
     return false;
   };
 
+  const requireSocialAccount = (message = 'Sign in to use social actions.') => {
+    if (isAuthenticated) return true;
+    showToast(message);
+    return false;
+  };
+
   const requireSellerAccount = () => {
     if (!isSellerRole(role)) {
       showToast('Use a seller account for studio actions.');
@@ -151,8 +157,13 @@ export default function App() {
   };
 
   const toggleLike = async (id) => {
-    if (!requireBuyerAccount()) return;
-    await marketplace.toggleLike(id);
+    if (!requireSocialAccount('Sign in to like artworks.')) return false;
+    try {
+      return await marketplace.toggleLike(id);
+    } catch (err) {
+      showToast(err.message || 'Could not update like.', 3200);
+      return false;
+    }
   };
 
   const toggleWatch = async (id) => {
@@ -163,9 +174,16 @@ export default function App() {
   };
 
   const toggleFollow = async (id) => {
-    if (!requireBuyerAccount()) return;
-    const isNowFollowing = await marketplace.toggleFollow(id);
-    showToast(isNowFollowing ? `Following ${artistById(id).name}` : `Unfollowed ${artistById(id).name}`);
+    if (!requireSocialAccount('Sign in to follow studios.')) return false;
+    try {
+      const artist = artistById(id);
+      const isNowFollowing = await marketplace.toggleFollow(id);
+      showToast(isNowFollowing ? `Following ${artist.name}` : `Unfollowed ${artist.name}`);
+      return isNowFollowing;
+    } catch (err) {
+      showToast(err.message || 'Could not update follow.', 3200);
+      return false;
+    }
   };
 
   const togglePostLike = async (id) => {
@@ -444,7 +462,7 @@ export default function App() {
           {view === 'commissions' && <CommissionsView goToArtist={goToArtist} role={role} onBookCommission={openCommissionBooking}/>}
           {view === 'feed' && <FeedView goToArtwork={goToArtwork} goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow} canPost={isSellerRole(role) && profile?.verified === true && !!ownedArtist} onPost={handleCreateFeedPost} user={user} ownedArtist={ownedArtist} feedPosts={marketplace.feedPosts} artists={marketplace.artists} artworks={marketplace.artworks} postLikes={postLikes} togglePostLike={togglePostLike} savedPosts={savedPosts} toggleSavedPost={toggleSavedPost} onDeletePost={handleDeleteFeedPost} onEditPost={handleEditFeedPost} onRefresh={marketplace.refreshCatalogue} onReport={openReport}/>}
           {view === 'artists' && <ArtistsView goToArtist={goToArtist} follows={follows} toggleFollow={toggleFollow}/>}
-          {view === 'profile' && <ProfileView user={user} profile={profile} role={role} updateProfile={updateProfile} marketplace={marketplace} setView={navigateToView}/>}
+          {view === 'profile' && <ProfileView user={user} profile={profile} role={role} updateProfile={updateProfile} marketplace={marketplace} setView={navigateToView} goToArtwork={goToArtwork} goToArtist={goToArtist} toggleFollow={toggleFollow}/>}
           {view === 'dashboard' && canViewDashboard && <BuyerDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} userBids={userBids} purchases={marketplace.purchases} auctionSettlements={marketplace.auctionSettlements} artworks={marketplace.artworks} watchlist={watchlist} toggleWatch={toggleWatch} profile={profile} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} setView={navigateToView}/>}
           {view === 'studio' && canViewStudio && <StudioDashboard goToArtwork={goToArtwork} likes={likes} toggleLike={toggleLike} profile={profile} ownedArtist={ownedArtist} commissionState={commissionState} onOpenCommissionThread={openCommissionThread} onSubmitStudio={handleCreateSellerArtist} onSubmitArtwork={handleCreateSellerArtwork} onUploadArtworkImage={uploadArtworkImage} onSubmitCommission={handleCreateSellerCommission}/>}
           {view === 'admin' && canViewAdmin && <AdminDashboard goToArtist={goToArtist} goToArtwork={goToArtwork} trustState={trustState} profile={profile} user={user}/>}

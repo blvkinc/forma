@@ -179,7 +179,7 @@ export function useMarketplace() {
         ? { ...work, likes: Math.max(0, Number(work.likes || 0) + (wasLiked ? 1 : -1)) }
         : work
       ));
-      return wasLiked;
+      throw err;
     }
   }, [userId, likes]);
 
@@ -212,7 +212,7 @@ export function useMarketplace() {
         ? { ...artist, followers: Math.max(0, Number(artist.followers || 0) + (wasFollowing ? 1 : -1)) }
         : artist
       ));
-      return wasFollowing;
+      throw err;
     }
   }, [userId, follows]);
 
