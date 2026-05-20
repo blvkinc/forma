@@ -3,10 +3,13 @@ import { Shield, ArrowRight } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import AuthPage from './pages/AuthPage';
 import SetNewPassword from './pages/SetNewPassword';
+import VerifyEmailPage from './pages/VerifyEmailPage';
+import { initialAuthCallback } from './lib/supabase';
 import { useMarketplace } from './hooks/useMarketplace';
 import { useCommissions } from './hooks/useCommissions';
 import { useTrustSafety } from './hooks/useTrustSafety';
 import { useNotifications } from './hooks/useNotifications';
+import { useFormaMotion } from './hooks/useFormaMotion';
 import { createSellerArtist, createSellerArtwork, createSellerCommission, createSellerFeedPost, deleteSellerFeedPost, updateSellerFeedPost, uploadArtworkImage } from './lib/seller';
 import { fmt, roleLabel, isBuyerRole, isSellerRole, isAdminRole, APP_VIEWS, viewFromHash } from './lib/ui';
 import { setCatalogue, artworkById, artistById } from './lib/catalogue';
@@ -35,6 +38,8 @@ const InfoView = named(() => import('./pages/InfoView'), 'InfoView');
 // ============================================================
 export default function App() {
   const { isAuthenticated, loading: authLoading, user, profile, role, signOut, updateProfile, recoveryMode } = useAuth();
+  const [verifyMode, setVerifyMode] = useState(initialAuthCallback?.type === 'signup');
+  const [verifyError, setVerifyError] = useState(false);
   const marketplace = useMarketplace();
   const ownedArtist = marketplace.artists.find(artist => artist.profileId === user?.id) || null;
   const commissionState = useCommissions(ownedArtist?.id || null);
@@ -98,123 +103,26 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  useFormaMotion([authLoading, isAuthenticated, view, marketplace.artworks.length, marketplace.feedPosts.length, marketplace.commissions.length]);
+
+  // Email-verification flow: once auth has settled, strip the access_token
+  // fragment from the URL and decide whether to show success or error UI.
   useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
+    if (!verifyMode || authLoading) return;
+    if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    if (!isAuthenticated) setVerifyError(true);
+  }, [verifyMode, authLoading, isAuthenticated]);
 
-    const root = document.querySelector('.swiss-app');
-    if (!root) return undefined;
-    root.classList.add('reveal-ready');
-
-    const textSelector = [
-      'main h1.display',
-      'main h2.display',
-      'main h3.display',
-      'main p',
-      '.motion-copy',
-      '.motion-stat',
-      '[data-reveal]',
-    ].join(',');
-    const cardSelector = [
-      'main .art-card',
-      'main .motion-card',
-      'main .motion-stat',
-      'main .motion-copy',
-      'main [class*="hair-all"][class*="bg-[var(--card)]"]',
-      'main [style*="background: var(--card)"]',
-    ].join(',');
-
-    const canObserve = 'IntersectionObserver' in window;
-    const observedNodes = new WeakSet();
-    let scanTimer = 0;
-    let observer;
-
-    const revealNode = (node) => {
-      node.classList.add('revealed');
-      observer?.unobserve(node);
-    };
-
-    const isInRevealRange = (node) => {
-      const rect = node.getBoundingClientRect();
-      return rect.top < window.innerHeight * 0.92 && rect.bottom > 0;
-    };
-
-    const scanVisibleNodes = () => {
-      scanTimer = 0;
-      root.querySelectorAll('.motion-reveal:not(.revealed)').forEach((node) => {
-        if (isInRevealRange(node)) revealNode(node);
-      });
-    };
-
-    const scheduleVisibleScan = () => {
-      if (scanTimer) return;
-      scanTimer = window.setTimeout(scanVisibleNodes, 40);
-    };
-
-    observer = canObserve ? new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (!entry.isIntersecting) return;
-        revealNode(entry.target);
-      });
-    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 }) : null;
-
-    const shouldSkipCard = (node) => {
-      if (node.closest('header, footer, .fixed, .user-menu-panel, .notif-menu')) return true;
-      if (node.matches('button, a, input, textarea, select, option')) return true;
-      if (node.closest('button, a') && !node.classList.contains('art-card')) return true;
-      if (node.classList.contains('sticky')) return true;
-      const rect = node.getBoundingClientRect();
-      return rect.width < 132 || rect.height < 56;
-    };
-
-    const prepareNode = (node, index, kind = 'text') => {
-      if (!node.classList.contains('motion-reveal')) {
-        node.classList.add('motion-reveal');
-        node.style.setProperty('--reveal-delay', `${Math.min(index % 8, 7) * 58}ms`);
-      }
-      if (kind === 'card') {
-        node.classList.add('motion-card');
-        node.style.setProperty('--card-rotate', `${((index % 5) - 2) * 0.16}deg`);
-      } else {
-        node.classList.add('motion-text');
-      }
-      if (!canObserve) {
-        revealNode(node);
-        return;
-      }
-      if (!node.classList.contains('revealed') && !observedNodes.has(node)) {
-        observedNodes.add(node);
-        observer.observe(node);
-      }
-    };
-
-    const prepareNodes = () => {
-      const cardNodes = Array.from(root.querySelectorAll(cardSelector))
-        .filter(node => !shouldSkipCard(node));
-
-      cardNodes.forEach((node, index) => prepareNode(node, index, 'card'));
-
-      const textNodes = Array.from(root.querySelectorAll(textSelector))
-        .filter(node => !node.closest('header, footer, .fixed, .user-menu-panel, .notif-menu'))
-        .filter(node => !node.closest('.motion-card') || node.matches('h1, h2, h3'));
-
-      textNodes.forEach((node, index) => prepareNode(node, index, 'text'));
-      scheduleVisibleScan();
-    };
-
-    prepareNodes();
-    const mutationObserver = new MutationObserver(() => prepareNodes());
-    mutationObserver.observe(root, { childList: true, subtree: true });
-    window.addEventListener('scroll', scheduleVisibleScan, { passive: true });
-    window.addEventListener('resize', scheduleVisibleScan);
-
-    return () => {
-      if (scanTimer) window.clearTimeout(scanTimer);
-      window.removeEventListener('scroll', scheduleVisibleScan);
-      window.removeEventListener('resize', scheduleVisibleScan);
-      mutationObserver.disconnect();
-      observer?.disconnect();
-    };
-  }, [view, marketplace.artworks.length, marketplace.feedPosts.length, marketplace.commissions.length]);
+  const exitVerify = () => {
+    if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    setVerifyMode(false);
+    setVerifyError(false);
+    navigateToView(isSellerRole(role) ? 'studio' : isAdminRole(role) ? 'admin' : 'home');
+  };
 
   const goToArtwork = (id) => { setSelectedArtwork(id); navigateToView('artwork'); };
   const goToArtist = (id) => { setSelectedArtist(id); navigateToView('artist'); };
@@ -461,6 +369,20 @@ export default function App() {
       showToast('Sign out failed: ' + err.message);
     }
   };
+
+  // --- Email-verification gate (takes precedence — user came in via confirm link) ---
+  if (verifyMode) {
+    return (
+      <>
+        <GlobalStyles/>
+        <VerifyEmailPage
+          status={verifyError ? 'error' : 'success'}
+          onContinue={exitVerify}
+          onBackToSignIn={exitVerify}
+        />
+      </>
+    );
+  }
 
   // --- Loading state ---
   if (authLoading) {

@@ -11,6 +11,16 @@ if (!supabaseUrl || !supabaseKey) {
   );
 }
 
+// Snapshot the URL fragment BEFORE Supabase consumes it, so the app can tell
+// whether this page load came from an email-verification callback.
+export const initialAuthCallback = (() => {
+  if (typeof window === 'undefined') return null;
+  const hash = window.location.hash || '';
+  if (!hash.includes('access_token=')) return null;
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  return { type: params.get('type') || null };
+})();
+
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     autoRefreshToken: true,

@@ -113,9 +113,19 @@ export const GlobalStyles = () => (
 
     .marquee {
       display: flex;
+      align-items: center;
       gap: 3rem;
+      width: max-content;
+      min-width: max-content;
       animation: marquee 40s linear infinite;
       white-space: nowrap;
+      will-change: transform;
+    }
+    .marquee > span {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      line-height: 1;
     }
     @keyframes marquee {
       from { transform: translateX(0); }
@@ -452,6 +462,10 @@ export const GlobalStyles = () => (
         filter: none;
         clip-path: none;
       }
+      .marquee {
+        animation: none;
+        transform: none;
+      }
     }
 
     .art-card {
@@ -460,6 +474,13 @@ export const GlobalStyles = () => (
     .art-card:hover { transform: translateY(-7px); }
     .art-card:hover .art-arrow { transform: translate(3px, -3px); }
     .art-arrow { transition: transform 0.36s var(--ease-out); }
+
+    .gsap-motion .art-card:hover,
+    .gsap-motion .art-card:hover .art-arrow,
+    .gsap-motion .art-card:hover .hair-all.relative img,
+    .gsap-motion .art-card:hover .hair-all.relative svg {
+      transform: none;
+    }
 
     .art-card .hair-all.relative {
       background: var(--card);
@@ -558,6 +579,13 @@ export const GlobalStyles = () => (
     .footer-panel {
       background: #171914;
       color: #EFEDE5;
+    }
+
+    .ticker-strip {
+      min-height: 36px;
+      display: flex;
+      align-items: center;
+      overflow: hidden;
     }
 
     .swiss-app svg [fill="#0E0E0C"] { fill: var(--card-ink); }
