@@ -234,6 +234,7 @@ test('seller onboarding uses private review media before admin approval', () => 
   const studio = read('src/pages/StudioDashboard.jsx');
   const admin = read('src/pages/AdminDashboard.jsx');
   const auth = read('src/pages/AuthPage.jsx');
+  const pending = read('src/lib/pendingSellerApplication.js');
 
   assert.match(sql, /add column if not exists artist_statement text/);
   assert.match(sql, /add column if not exists profile_links jsonb/);
@@ -254,9 +255,18 @@ test('seller onboarding uses private review media before admin approval', () => 
 
   assert.match(seller, /type="file"/);
   assert.match(seller, /profileLinks/);
+  assert.match(seller, /localFileId/);
   assert.match(studio, /uploadSellerApplicationImage/);
+  assert.match(studio, /submitPendingSellerApplication/);
+  assert.match(studio, /loadPendingSellerApplication/);
   assert.match(admin, /application\.artistStatement/);
   assert.match(admin, /application\.profileLinks/);
   assert.match(auth, /Apply to sell/);
   assert.match(auth, /Admin approval unlocks seller tools/);
+  assert.match(auth, /mode === 'seller-onboarding'/);
+  assert.match(auth, /savePendingSellerApplication/);
+  assert.match(auth, /stagePendingSellerApplicationImage/);
+  assert.match(pending, /indexedDB\.open\(DB_NAME, DB_VERSION\)/);
+  assert.match(pending, /submitSellerApplication\(profileId/);
+  assert.match(pending, /uploadSellerApplicationImage\(record\.file\)/);
 });

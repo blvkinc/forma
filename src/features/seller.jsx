@@ -6,7 +6,7 @@ import { ArrowRight, Check, ChevronLeft, Plus, Trash2, Upload } from 'lucide-rea
 import { ACCENT_SWATCHES, VISUAL_OPTIONS } from '../lib/ui';
 import { ArtVisual } from '../components/shared';
 
-const emptySample = () => ({ title: '', imageUrl: '', storagePath: '', previewUrl: '', notes: '' });
+const emptySample = () => ({ title: '', imageUrl: '', storagePath: '', localFileId: '', previewUrl: '', notes: '' });
 const emptyProfileLink = () => ({ label: '', url: '' });
 
 export const SellerApplicationForm = ({ profile, application, onSubmit, onUploadImage }) => {
@@ -125,6 +125,7 @@ export const SellerApplicationForm = ({ profile, application, onSubmit, onUpload
             ? {
               ...sample,
               storagePath: uploaded?.storagePath || sample.storagePath || '',
+              localFileId: uploaded?.localFileId || sample.localFileId || '',
               imageUrl: '',
               previewUrl: uploaded?.imageUrl || sample.previewUrl || '',
             }
@@ -139,7 +140,7 @@ export const SellerApplicationForm = ({ profile, application, onSubmit, onUpload
   };
 
   const hasSample = form.sampleWorks.some(sample =>
-    sample.title.trim() || sample.imageUrl.trim() || sample.storagePath || sample.previewUrl || sample.notes.trim()
+    sample.title.trim() || sample.imageUrl.trim() || sample.storagePath || sample.localFileId || sample.previewUrl || sample.notes.trim()
   );
   const hasProfileLink = form.profileLinks.some(link => link.url.trim());
   const formValid = form.studioName.trim().length > 0
@@ -301,7 +302,7 @@ export const SellerApplicationForm = ({ profile, application, onSubmit, onUpload
                       placeholder="Title"
                     />
                     <label htmlFor={`seller-sample-upload-${index}`} className="swiss-btn ghost w-full justify-center cursor-pointer mb-3">
-                      <Upload size={12}/> {uploadingIndex === index ? 'Uploading...' : sample.storagePath ? 'Replace upload' : 'Upload image'}
+                      <Upload size={12}/> {uploadingIndex === index ? 'Uploading...' : (sample.storagePath || sample.localFileId) ? 'Replace upload' : 'Upload image'}
                     </label>
                     <input
                       id={`seller-sample-upload-${index}`}
@@ -313,10 +314,10 @@ export const SellerApplicationForm = ({ profile, application, onSubmit, onUpload
                     <input
                       value={sample.storagePath ? '' : sample.imageUrl}
                       onChange={event => updateSample(index, 'imageUrl', event.target.value)}
-                      disabled={!!sample.storagePath}
+                      disabled={!!(sample.storagePath || sample.localFileId)}
                       className="swiss-input mb-3"
                       maxLength={500}
-                      placeholder={sample.storagePath ? 'Private upload attached' : 'Optional external image URL'}
+                      placeholder={(sample.storagePath || sample.localFileId) ? 'Private upload attached' : 'Optional external image URL'}
                     />
                     <textarea
                       value={sample.notes}
@@ -351,7 +352,7 @@ export const SellerApplicationForm = ({ profile, application, onSubmit, onUpload
                 {[
                   ['Studio', form.studioName || 'Missing'],
                   ['Links', String((form.portfolioUrl ? 1 : 0) + form.profileLinks.filter(link => link.url.trim()).length)],
-                  ['Samples', String(form.sampleWorks.filter(sample => sample.title.trim() || sample.imageUrl.trim() || sample.storagePath || sample.notes.trim()).length)],
+                  ['Samples', String(form.sampleWorks.filter(sample => sample.title.trim() || sample.imageUrl.trim() || sample.storagePath || sample.localFileId || sample.notes.trim()).length)],
                   ['Statement', form.artistStatement.trim() ? 'Added' : 'Optional'],
                 ].map(([label, value]) => (
                   <div key={label} className="hair-b pb-3 flex justify-between gap-4 last:border-0">

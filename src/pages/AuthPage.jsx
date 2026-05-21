@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { ArrowRight, Eye, EyeOff, Check, AlertCircle, Mail } from 'lucide-react';
+import { SellerApplicationForm } from '../features/seller';
+import { savePendingSellerApplication, stagePendingSellerApplicationImage } from '../lib/pendingSellerApplication';
 
 export default function AuthPage() {
   const { signIn, signUp, resetPassword, signInWithProvider } = useAuth();
@@ -14,11 +16,15 @@ export default function AuthPage() {
   const [error, setError] = useState('');
   const [confirmationSent, setConfirmationSent] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [sellerAccount, setSellerAccount] = useState(null);
+  const [sellerApplicationQueued, setSellerApplicationQueued] = useState(false);
+  const [sellerDraftSaved, setSellerDraftSaved] = useState(false);
 
   const reset = () => {
     setError('');
     setConfirmationSent(false);
     setResetSent(false);
+    setSellerDraftSaved(false);
   };
 
   const switchMode = (m) => {
@@ -43,6 +49,17 @@ export default function AuthPage() {
           throw new Error('Password must be at least 10 characters.');
         }
 
+        if (role === 'artist') {
+          setSellerAccount({
+            email: email.trim(),
+            password,
+            displayName: displayName.trim(),
+          });
+          setMode('seller-onboarding');
+          window.scrollTo(0, 0);
+          return;
+        }
+
         const result = await signUp({
           email,
           password,
@@ -53,8 +70,6 @@ export default function AuthPage() {
         // If email confirmation is required, session will be null
         if (result.user && !result.session) {
           setConfirmationSent(true);
-        } else if (role === 'artist' && typeof window !== 'undefined') {
-          window.location.hash = 'studio';
         }
       } else {
         await signIn({ email, password });
@@ -62,6 +77,45 @@ export default function AuthPage() {
       }
     } catch (err) {
       setError(err.message || 'Something went wrong.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStageSellerImage = async (file) => {
+    if (!sellerAccount?.email) throw new Error('Enter account details before adding images.');
+    return stagePendingSellerApplicationImage(sellerAccount.email, file);
+  };
+
+  const handleSellerApplicationSubmit = async (payload) => {
+    if (!sellerAccount?.email || !sellerAccount?.password || !sellerAccount?.displayName) {
+      throw new Error('Account details are missing. Go back and complete the signup form.');
+    }
+
+    savePendingSellerApplication(sellerAccount.email, payload);
+    setSellerDraftSaved(payload.status === 'draft');
+
+    if (payload.status === 'draft') return true;
+
+    setLoading(true);
+    setSellerApplicationQueued(true);
+    try {
+      const result = await signUp({
+        email: sellerAccount.email,
+        password: sellerAccount.password,
+        displayName: sellerAccount.displayName,
+        role: 'artist',
+      });
+
+      if (result.user && !result.session) {
+        setConfirmationSent(true);
+      } else if (typeof window !== 'undefined') {
+        window.location.hash = 'studio';
+      }
+      return true;
+    } catch (err) {
+      setSellerApplicationQueued(false);
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -78,8 +132,10 @@ export default function AuthPage() {
             </div>
             <h1 className="display text-[42px] mt-8 leading-[0.95]">Check your email.</h1>
             <p className="text-[15px] text-[var(--ink-2)] mt-4 leading-relaxed max-w-[360px] mx-auto">
-              We sent a confirmation link to <strong className="text-[var(--ink)]">{email}</strong>.
-              Click it to activate your account, then come back here to sign in.
+              We sent a confirmation link to <strong className="text-[var(--ink)]">{sellerAccount?.email || email}</strong>.
+              {sellerApplicationQueued
+                ? ' Your seller application is saved in this browser and will submit for admin review after you confirm and open Studio.'
+                : ' Click it to activate your account, then come back here to sign in.'}
             </p>
             <button
               onClick={() => { switchMode('signin'); setConfirmationSent(false); }}
@@ -88,6 +144,52 @@ export default function AuthPage() {
               Back to sign in <ArrowRight size={12} />
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'seller-onboarding' && sellerAccount) {
+    return (
+      <div className="swiss-app min-h-screen grid-bg" style={{ backgroundColor: 'var(--bg)' }}>
+        <div className="max-w-[1120px] mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+          <div className="hair-b pb-5 mb-8 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+            <div>
+              <div className="label mb-2">No. 02 - Seller application</div>
+              <h1 className="display text-[42px] sm:text-[56px] leading-tight">Apply before confirmation.</h1>
+              <p className="text-[14px] text-[var(--muted)] mt-3 max-w-[680px] leading-relaxed">
+                Complete the review packet now. After this, FORMA sends the email confirmation, then submits your application for admin review once your seller session is active.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('signup');
+                setSellerDraftSaved(false);
+                window.scrollTo(0, 0);
+              }}
+              className="swiss-btn ghost justify-center"
+            >
+              Back to account details
+            </button>
+          </div>
+
+          {sellerDraftSaved && (
+            <div className="hair-all bg-[var(--bg-2)] p-4 text-[13px] text-[var(--muted)] mb-6">
+              Draft saved on this device. Submit it when you are ready to create the seller application account.
+            </div>
+          )}
+
+          <SellerApplicationForm
+            profile={{
+              display_name: sellerAccount.displayName,
+              handle: sellerAccount.displayName,
+              email: sellerAccount.email,
+            }}
+            application={null}
+            onSubmit={handleSellerApplicationSubmit}
+            onUploadImage={handleStageSellerImage}
+          />
         </div>
       </div>
     );

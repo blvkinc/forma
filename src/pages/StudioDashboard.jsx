@@ -1,13 +1,14 @@
 // ============================================================
 // FORMA — Artist studio dashboard
 // ============================================================
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, Plus, ArrowRight, ChevronRight } from 'lucide-react';
 import { ArtVisual } from '../components/shared';
 import { SellerApplicationForm, SellerStudioForm, SellerArtworkForm, SellerCommissionForm } from '../features/seller';
 import { fmt, formatTime, relativeTime } from '../lib/ui';
 import { ARTWORKS, COMMISSIONS } from '../lib/catalogue';
 import { fetchMySellerApplication, submitSellerApplication, uploadSellerApplicationImage } from '../lib/onboarding';
+import { loadPendingSellerApplication, submitPendingSellerApplication } from '../lib/pendingSellerApplication';
 import { fetchArtistAuctionSettlements } from '../lib/auctions';
 import { artistPayoutFromAuction } from '../lib/domain';
 
@@ -18,6 +19,8 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
   const [application, setApplication] = useState(null);
   const [applicationLoading, setApplicationLoading] = useState(false);
   const [applicationError, setApplicationError] = useState('');
+  const [pendingApplicationNotice, setPendingApplicationNotice] = useState('');
+  const pendingApplicationImportRef = useRef(false);
   const [commissionNotice, setCommissionNotice] = useState('');
   const [sellerSettlements, setSellerSettlements] = useState([]);
   const [settlementLoading, setSettlementLoading] = useState(false);
@@ -87,6 +90,46 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
     else if (sellerVerified && !ownedArtist && !['setup', 'onboarding'].includes(tab)) setTab('setup');
     else if (sellerVerified && ownedArtist && tab === 'onboarding' && application?.status === 'approved') setTab('overview');
   }, [sellerVerified, ownedArtist, tab, application?.status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const email = profile?.email;
+
+    if (
+      !profile?.id ||
+      !email ||
+      sellerVerified ||
+      applicationLoading ||
+      application?.id ||
+      pendingApplicationImportRef.current
+    ) {
+      return undefined;
+    }
+
+    const pending = loadPendingSellerApplication(email);
+    if (!pending) return undefined;
+
+    pendingApplicationImportRef.current = true;
+    setPendingApplicationNotice('Submitting your saved seller application for admin review.');
+    setApplicationError('');
+
+    submitPendingSellerApplication(profile.id, email)
+      .then(saved => {
+        if (cancelled) return;
+        if (saved) {
+          setApplication(saved);
+          setPendingApplicationNotice('Seller application submitted. Admin review can now begin.');
+        }
+      })
+      .catch(err => {
+        if (cancelled) return;
+        pendingApplicationImportRef.current = false;
+        setPendingApplicationNotice('');
+        setApplicationError(err.message || 'Saved seller application could not be submitted.');
+      });
+
+    return () => { cancelled = true; };
+  }, [profile?.id, profile?.email, sellerVerified, applicationLoading, application?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -234,6 +277,7 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
               </span>
             </div>
             {applicationError && <div className="text-[12px] text-[var(--accent)] mt-4">{applicationError}</div>}
+            {pendingApplicationNotice && <div className="text-[12px] text-[var(--muted)] mt-4">{pendingApplicationNotice}</div>}
           </div>
 
           {!sellerVerified && application?.status !== 'approved' && (
