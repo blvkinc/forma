@@ -105,6 +105,8 @@ Additional production-readiness migrations add:
   exposes only limited public profile cards for social display.
 - `047_disable_client_side_purchase_adapter.sql` - disables buyer-created
   purchase rows so acquisitions are settlement/payment-created only.
+- `048_seller_application_media_and_links.sql` - adds private seller
+  onboarding media uploads, profile links, and richer admin review packets.
 
 For staging QA, run `supabase/fixtures/production_readiness_seed.sql` after the
 migrations if the live project has empty feed/admin/social queues. It creates

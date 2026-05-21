@@ -226,3 +226,37 @@ test('purchases are settlement-created, not buyer-created from the client', () =
   assert.doesNotMatch(artworkView, /Record acquisition|prototype acquisition|Checkout adapter/);
   assert.doesNotMatch(buyerDashboard, /prototype checkout|checkout adapter|prototype acquisition/i);
 });
+
+test('seller onboarding uses private review media before admin approval', () => {
+  const sql = read('supabase/migrations/048_seller_application_media_and_links.sql');
+  const onboarding = read('src/lib/onboarding.js');
+  const seller = read('src/features/seller.jsx');
+  const studio = read('src/pages/StudioDashboard.jsx');
+  const admin = read('src/pages/AdminDashboard.jsx');
+  const auth = read('src/pages/AuthPage.jsx');
+
+  assert.match(sql, /add column if not exists artist_statement text/);
+  assert.match(sql, /add column if not exists profile_links jsonb/);
+  assert.match(sql, /'seller-application-media'/);
+  assert.match(sql, /false,\s*\n\s*10485760/s);
+  assert.match(sql, /Applicants and admins can read seller application media/);
+  assert.match(sql, /owner_id = \(select auth\.uid\(\)\)::text/);
+  assert.match(sql, /or \(select private\.is_admin\(\)\)/);
+  assert.match(sql, /p\.role = 'artist'\s+and p\.verified = false/);
+  assert.match(sql, /name like \(select auth\.uid\(\)\)::text \|\| '\/%'/);
+  assert.match(sql, /profile_url !~\* '\^https:\/\//);
+
+  assert.match(onboarding, /APPLICATION_MEDIA_BUCKET = 'seller-application-media'/);
+  assert.match(onboarding, /createSignedUrl\(storagePath, 60 \* 60\)/);
+  assert.match(onboarding, /uploadSellerApplicationImage/);
+  assert.match(onboarding, /storagePath/);
+  assert.match(onboarding, /profile_links: profileLinks/);
+
+  assert.match(seller, /type="file"/);
+  assert.match(seller, /profileLinks/);
+  assert.match(studio, /uploadSellerApplicationImage/);
+  assert.match(admin, /application\.artistStatement/);
+  assert.match(admin, /application\.profileLinks/);
+  assert.match(auth, /Apply to sell/);
+  assert.match(auth, /Admin approval unlocks seller tools/);
+});

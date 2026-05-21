@@ -7,7 +7,7 @@ import { ArtVisual } from '../components/shared';
 import { SellerApplicationForm, SellerStudioForm, SellerArtworkForm, SellerCommissionForm } from '../features/seller';
 import { fmt, formatTime, relativeTime } from '../lib/ui';
 import { ARTWORKS, COMMISSIONS } from '../lib/catalogue';
-import { fetchMySellerApplication, submitSellerApplication } from '../lib/onboarding';
+import { fetchMySellerApplication, submitSellerApplication, uploadSellerApplicationImage } from '../lib/onboarding';
 import { fetchArtistAuctionSettlements } from '../lib/auctions';
 import { artistPayoutFromAuction } from '../lib/domain';
 
@@ -241,6 +241,7 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
               profile={profile}
               application={application}
               onSubmit={handleSubmitApplication}
+              onUploadImage={uploadSellerApplicationImage}
             />
           )}
 

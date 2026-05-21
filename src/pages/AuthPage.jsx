@@ -53,6 +53,8 @@ export default function AuthPage() {
         // If email confirmation is required, session will be null
         if (result.user && !result.session) {
           setConfirmationSent(true);
+        } else if (role === 'artist' && typeof window !== 'undefined') {
+          window.location.hash = 'studio';
         }
       } else {
         await signIn({ email, password });
@@ -187,7 +189,7 @@ export default function AuthPage() {
               {mode === 'signin'
                 ? 'Sign in with your email and password.'
                 : mode === 'signup'
-                  ? 'Create an account to bid on auctions, book commissions, or open a shop.'
+                  ? 'Create an account to bid, book commissions, or apply for seller review.'
                   : 'Enter your account email and we will send a password reset link.'}
             </p>
 
@@ -285,8 +287,8 @@ export default function AuthPage() {
                       },
                       {
                         id: 'artist',
-                        title: 'Sell',
-                        desc: 'List works, run auctions, open commission slots.',
+                        title: 'Apply to sell',
+                        desc: 'Submit work samples and profile links. Admin approval unlocks seller tools.',
                       },
                     ].map((opt) => (
                       <button
@@ -333,7 +335,7 @@ export default function AuthPage() {
                   </span>
                 ) : (
                   <>
-                    {mode === 'signin' ? 'Sign in' : mode === 'signup' ? 'Create account' : 'Send reset link'}
+                    {mode === 'signin' ? 'Sign in' : mode === 'signup' ? (role === 'artist' ? 'Create seller application account' : 'Create account') : 'Send reset link'}
                     <ArrowRight size={12} />
                   </>
                 )}

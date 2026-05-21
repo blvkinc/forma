@@ -342,15 +342,35 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, goToFeed, trustState, 
                     <p className="text-[13px] text-[var(--ink-2)] mt-4 leading-relaxed max-w-[820px]">
                       {application.bio || 'No studio bio submitted.'}
                     </p>
-                    {application.processNotes && (
-                      <p className="text-[12px] text-[var(--muted)] mt-3 leading-relaxed max-w-[820px]">
-                        {application.processNotes}
-                      </p>
+                    {application.artistStatement && (
+                      <div className="hair-all bg-[var(--bg)] p-4 mt-4 max-w-[820px]">
+                        <div className="label mb-2">Artist statement</div>
+                        <p className="text-[12px] text-[var(--ink-2)] leading-relaxed">
+                          {application.artistStatement}
+                        </p>
+                      </div>
                     )}
-                    {application.portfolioUrl && (
-                      <a href={application.portfolioUrl} target="_blank" rel="noreferrer" className="swiss-btn ghost mt-4 inline-flex">
-                        Portfolio <ExternalLink size={12}/>
-                      </a>
+                    {application.processNotes && (
+                      <div className="hair-all bg-[var(--bg)] p-4 mt-4 max-w-[820px]">
+                        <div className="label mb-2">Process proof</div>
+                        <p className="text-[12px] text-[var(--muted)] leading-relaxed">
+                          {application.processNotes}
+                        </p>
+                      </div>
+                    )}
+                    {(application.portfolioUrl || application.profileLinks?.length > 0) && (
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        {application.portfolioUrl && (
+                          <a href={application.portfolioUrl} target="_blank" rel="noreferrer" className="swiss-btn ghost inline-flex">
+                            Portfolio <ExternalLink size={12}/>
+                          </a>
+                        )}
+                        {(application.profileLinks || []).map((link, linkIndex) => (
+                          <a key={`${link.url}-${linkIndex}`} href={link.url} target="_blank" rel="noreferrer" className="swiss-btn ghost inline-flex">
+                            {link.label || 'Profile'} <ExternalLink size={12}/>
+                          </a>
+                        ))}
+                      </div>
                     )}
                   </div>
                   <div className="xl:w-[360px] shrink-0">
@@ -386,6 +406,11 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, goToFeed, trustState, 
                         <div className="label">Sample {String(index + 1).padStart(2, '0')}</div>
                         <div className="text-[14px] font-medium mt-2">{sample.title || 'Untitled sample'}</div>
                         <p className="text-[12px] text-[var(--muted)] mt-2 leading-relaxed">{sample.notes || 'No process notes.'}</p>
+                        {sample.storagePath && (
+                          <div className="mono text-[9px] text-[var(--muted)] mt-3 break-all">
+                            Private upload: {sample.storagePath}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

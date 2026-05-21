@@ -2,41 +2,79 @@
 // FORMA — Seller studio / artwork / commission forms
 // ============================================================
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, Upload } from 'lucide-react';
+import { ArrowRight, Check, ChevronLeft, Plus, Trash2, Upload } from 'lucide-react';
 import { ACCENT_SWATCHES, VISUAL_OPTIONS } from '../lib/ui';
 import { ArtVisual } from '../components/shared';
 
-const emptySample = () => ({ title: '', imageUrl: '', notes: '' });
+const emptySample = () => ({ title: '', imageUrl: '', storagePath: '', previewUrl: '', notes: '' });
+const emptyProfileLink = () => ({ label: '', url: '' });
 
-export const SellerApplicationForm = ({ profile, application, onSubmit }) => {
+export const SellerApplicationForm = ({ profile, application, onSubmit, onUploadImage }) => {
+  const steps = [
+    { key: 'studio', label: 'Studio' },
+    { key: 'links', label: 'Links' },
+    { key: 'work', label: 'Work samples' },
+    { key: 'proof', label: 'Proof' },
+  ];
+  const [step, setStep] = useState(0);
   const [form, setForm] = useState({
     studioName: '',
     handle: '',
     city: '',
     bio: '',
+    artistStatement: '',
     portfolioUrl: '',
+    profileLinks: [emptyProfileLink(), emptyProfileLink()],
     processNotes: '',
     sampleWorks: [emptySample(), emptySample(), emptySample()],
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [uploadingIndex, setUploadingIndex] = useState(null);
 
   useEffect(() => {
     const samples = Array.isArray(application?.sampleWorks) && application.sampleWorks.length
       ? application.sampleWorks
       : [emptySample(), emptySample(), emptySample()];
+    const profileLinks = Array.isArray(application?.profileLinks) && application.profileLinks.length
+      ? application.profileLinks
+      : [emptyProfileLink(), emptyProfileLink()];
     setForm({
       studioName: application?.studioName || profile?.display_name || '',
       handle: application?.handle || profile?.handle || profile?.display_name || '',
       city: application?.city || profile?.city || '',
       bio: application?.bio || profile?.bio || '',
+      artistStatement: application?.artistStatement || '',
       portfolioUrl: application?.portfolioUrl || '',
+      profileLinks: [...profileLinks, emptyProfileLink()].slice(0, 8),
       processNotes: application?.processNotes || '',
-      sampleWorks: [...samples, emptySample(), emptySample()].slice(0, 6),
+      sampleWorks: [...samples, emptySample(), emptySample()].slice(0, 8),
     });
   }, [application, profile]);
 
   const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+  const updateProfileLink = (index, field, value) => {
+    setForm(prev => ({
+      ...prev,
+      profileLinks: prev.profileLinks.map((link, linkIndex) =>
+        linkIndex === index ? { ...link, [field]: value } : link
+      ),
+    }));
+  };
+  const addProfileLink = () => {
+    setForm(prev => ({
+      ...prev,
+      profileLinks: prev.profileLinks.length >= 8 ? prev.profileLinks : [...prev.profileLinks, emptyProfileLink()],
+    }));
+  };
+  const removeProfileLink = (index) => {
+    setForm(prev => ({
+      ...prev,
+      profileLinks: prev.profileLinks.length <= 1
+        ? [emptyProfileLink()]
+        : prev.profileLinks.filter((_, linkIndex) => linkIndex !== index),
+    }));
+  };
   const updateSample = (index, field, value) => {
     setForm(prev => ({
       ...prev,
@@ -48,15 +86,65 @@ export const SellerApplicationForm = ({ profile, application, onSubmit }) => {
   const addSample = () => {
     setForm(prev => ({
       ...prev,
-      sampleWorks: prev.sampleWorks.length >= 6 ? prev.sampleWorks : [...prev.sampleWorks, emptySample()],
+      sampleWorks: prev.sampleWorks.length >= 8 ? prev.sampleWorks : [...prev.sampleWorks, emptySample()],
+    }));
+  };
+  const removeSample = (index) => {
+    setForm(prev => ({
+      ...prev,
+      sampleWorks: prev.sampleWorks.length <= 1
+        ? [emptySample()]
+        : prev.sampleWorks.filter((_, sampleIndex) => sampleIndex !== index),
     }));
   };
 
+  const uploadSampleImage = async (index, event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setError('');
+    if (!onUploadImage) {
+      setError('Application image upload is not configured yet.');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      setError('Choose a PNG, JPG, GIF, or WEBP image.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Application images must be 10MB or smaller.');
+      return;
+    }
+    setUploadingIndex(index);
+    try {
+      const uploaded = await onUploadImage(file);
+      setForm(prev => ({
+        ...prev,
+        sampleWorks: prev.sampleWorks.map((sample, sampleIndex) =>
+          sampleIndex === index
+            ? {
+              ...sample,
+              storagePath: uploaded?.storagePath || sample.storagePath || '',
+              imageUrl: '',
+              previewUrl: uploaded?.imageUrl || sample.previewUrl || '',
+            }
+            : sample
+        ),
+      }));
+    } catch (err) {
+      setError(err.message || 'Application image upload failed.');
+    } finally {
+      setUploadingIndex(null);
+    }
+  };
+
   const hasSample = form.sampleWorks.some(sample =>
-    sample.title.trim() || sample.imageUrl.trim() || sample.notes.trim()
+    sample.title.trim() || sample.imageUrl.trim() || sample.storagePath || sample.previewUrl || sample.notes.trim()
   );
+  const hasProfileLink = form.profileLinks.some(link => link.url.trim());
   const formValid = form.studioName.trim().length > 0
-    && (form.portfolioUrl.trim().length > 0 || hasSample);
+    && (form.portfolioUrl.trim().length > 0 || hasProfileLink || hasSample);
+  const activeStep = steps[step];
 
   const submit = async (event, status = 'pending') => {
     event.preventDefault();
@@ -79,70 +167,212 @@ export const SellerApplicationForm = ({ profile, application, onSubmit }) => {
         <div className="label">Seller onboarding</div>
         <h2 className="display text-[30px] sm:text-[34px] mt-2">Apply for studio review.</h2>
         <p className="text-[13px] text-[var(--muted)] mt-3 max-w-[720px] leading-relaxed">
-          Submit your studio identity, portfolio, and process samples. Admins review the work before seller tools unlock.
+          Seller signup starts here: submit your studio identity, proof links, and sample images. Admins review the packet before listing, commission, feed, or studio publishing tools unlock.
         </p>
       </div>
 
-      <div className="p-5 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-5">
-        <div>
-          <label htmlFor="seller-app-name" className="label mb-2 block">Studio name</label>
-          <input id="seller-app-name" value={form.studioName} onChange={event => updateField('studioName', event.target.value)} className="swiss-input" maxLength={120} required/>
-        </div>
-        <div>
-          <label htmlFor="seller-app-handle" className="label mb-2 block">Preferred handle</label>
-          <input id="seller-app-handle" value={form.handle} onChange={event => updateField('handle', event.target.value)} className="swiss-input" maxLength={48}/>
-        </div>
-        <div>
-          <label htmlFor="seller-app-city" className="label mb-2 block">City</label>
-          <input id="seller-app-city" value={form.city} onChange={event => updateField('city', event.target.value)} className="swiss-input" maxLength={120}/>
-        </div>
-        <div>
-          <label htmlFor="seller-app-portfolio" className="label mb-2 block">Portfolio URL</label>
-          <input id="seller-app-portfolio" value={form.portfolioUrl} onChange={event => updateField('portfolioUrl', event.target.value)} className="swiss-input" maxLength={500} placeholder="https://"/>
-        </div>
-        <div className="sm:col-span-2">
-          <label htmlFor="seller-app-bio" className="label mb-2 block">Studio bio</label>
-          <textarea id="seller-app-bio" value={form.bio} onChange={event => updateField('bio', event.target.value)} className="swiss-input min-h-[120px]" maxLength={900}/>
-        </div>
-        <div className="sm:col-span-2">
-          <label htmlFor="seller-app-process" className="label mb-2 block">Process notes / proof of work</label>
-          <textarea id="seller-app-process" value={form.processNotes} onChange={event => updateField('processNotes', event.target.value)} className="swiss-input min-h-[150px]" maxLength={1200}/>
+      <div className="p-5 sm:p-6 hair-b">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          {steps.map((item, index) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setStep(index)}
+              className={`hair-all p-3 text-left transition-colors ${step === index ? 'bg-[var(--ink)] text-[var(--bg)]' : 'bg-[var(--bg)] hover:bg-[var(--bg-2)]'}`}
+              aria-current={step === index ? 'step' : undefined}
+            >
+              <div className="mono text-[10px] uppercase tracking-[0.12em] opacity-70">{String(index + 1).padStart(2, '0')}</div>
+              <div className="text-[13px] font-medium mt-1">{item.label}</div>
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="px-5 sm:px-6 pb-6">
-        <div className="hair-b pb-3 mb-4 flex items-baseline justify-between">
-          <h3 className="display text-[22px]">Sample works</h3>
-          <button type="button" onClick={addSample} className="mono text-[11px] underline-hover">Add sample</button>
+      <div className="p-5 sm:p-6">
+        <div className="hair-b pb-3 mb-5 flex items-baseline justify-between gap-4">
+          <div>
+            <div className="label">Step {String(step + 1).padStart(2, '0')}</div>
+            <h3 className="display text-[24px] mt-1">{activeStep.label}</h3>
+          </div>
+          {step === 1 && <button type="button" onClick={addProfileLink} className="swiss-btn ghost"><Plus size={12}/> Add link</button>}
+          {step === 2 && <button type="button" onClick={addSample} className="swiss-btn ghost"><Plus size={12}/> Add sample</button>}
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {form.sampleWorks.map((sample, index) => (
-            <div key={index} className="hair-all bg-[var(--bg)] p-4">
-              <div className="label mb-3">Sample {String(index + 1).padStart(2, '0')}</div>
-              <input
-                value={sample.title}
-                onChange={event => updateSample(index, 'title', event.target.value)}
-                className="swiss-input mb-3"
-                maxLength={140}
-                placeholder="Title"
-              />
-              <input
-                value={sample.imageUrl}
-                onChange={event => updateSample(index, 'imageUrl', event.target.value)}
-                className="swiss-input mb-3"
-                maxLength={500}
-                placeholder="Image URL"
-              />
+
+        {step === 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div>
+              <label htmlFor="seller-app-name" className="label mb-2 block">Studio name</label>
+              <input id="seller-app-name" value={form.studioName} onChange={event => updateField('studioName', event.target.value)} className="swiss-input" maxLength={120} required/>
+            </div>
+            <div>
+              <label htmlFor="seller-app-handle" className="label mb-2 block">Preferred handle</label>
+              <input id="seller-app-handle" value={form.handle} onChange={event => updateField('handle', event.target.value)} className="swiss-input" maxLength={48}/>
+            </div>
+            <div>
+              <label htmlFor="seller-app-city" className="label mb-2 block">City</label>
+              <input id="seller-app-city" value={form.city} onChange={event => updateField('city', event.target.value)} className="swiss-input" maxLength={120}/>
+            </div>
+            <div className="sm:col-span-2">
+              <label htmlFor="seller-app-bio" className="label mb-2 block">Studio bio</label>
               <textarea
-                value={sample.notes}
-                onChange={event => updateSample(index, 'notes', event.target.value)}
-                className="swiss-input min-h-[110px]"
-                maxLength={500}
-                placeholder="Process, tools, client, or provenance notes"
+                id="seller-app-bio"
+                value={form.bio}
+                onChange={event => updateField('bio', event.target.value)}
+                className="swiss-input min-h-[120px]"
+                maxLength={900}
               />
             </div>
-          ))}
-        </div>
+            <div className="sm:col-span-2">
+              <label htmlFor="seller-app-statement" className="label mb-2 block">Artist statement</label>
+              <textarea
+                id="seller-app-statement"
+                value={form.artistStatement}
+                onChange={event => updateField('artistStatement', event.target.value)}
+                className="swiss-input min-h-[150px]"
+                maxLength={1200}
+                placeholder="What you make, why it belongs on FORMA, and what collectors should understand about the work."
+              />
+            </div>
+          </div>
+        )}
+
+        {step === 1 && (
+          <div className="space-y-5">
+            <div>
+              <label htmlFor="seller-app-portfolio" className="label mb-2 block">Primary portfolio URL</label>
+              <input id="seller-app-portfolio" value={form.portfolioUrl} onChange={event => updateField('portfolioUrl', event.target.value)} className="swiss-input" maxLength={500} placeholder="https://"/>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {form.profileLinks.map((link, index) => (
+                <div key={index} className="hair-all bg-[var(--bg)] p-4">
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div className="label">Profile link {String(index + 1).padStart(2, '0')}</div>
+                    <button type="button" onClick={() => removeProfileLink(index)} className="hair-all w-8 h-8 inline-flex items-center justify-center" aria-label={`Remove profile link ${index + 1}`}>
+                      <Trash2 size={13}/>
+                    </button>
+                  </div>
+                  <input
+                    value={link.label}
+                    onChange={event => updateProfileLink(index, 'label', event.target.value)}
+                    className="swiss-input mb-3"
+                    maxLength={80}
+                    placeholder="Instagram, Behance, ArtStation"
+                  />
+                  <input
+                    value={link.url}
+                    onChange={event => updateProfileLink(index, 'url', event.target.value)}
+                    className="swiss-input"
+                    maxLength={500}
+                    placeholder="https://"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+            {form.sampleWorks.map((sample, index) => {
+              const imageSrc = sample.previewUrl || sample.imageUrl;
+              return (
+                <div key={index} className="hair-all bg-[var(--bg)] overflow-hidden">
+                  <div className="aspect-[4/3] bg-[var(--bg-2)]">
+                    {imageSrc ? (
+                      <img src={imageSrc} alt={sample.title || `Sample ${index + 1}`} className="w-full h-full object-cover"/>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-[var(--muted)]">
+                        <Upload size={22}/>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-4">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <div className="label">Sample {String(index + 1).padStart(2, '0')}</div>
+                      <button type="button" onClick={() => removeSample(index)} className="hair-all w-8 h-8 inline-flex items-center justify-center" aria-label={`Remove sample ${index + 1}`}>
+                        <Trash2 size={13}/>
+                      </button>
+                    </div>
+                    <input
+                      value={sample.title}
+                      onChange={event => updateSample(index, 'title', event.target.value)}
+                      className="swiss-input mb-3"
+                      maxLength={140}
+                      placeholder="Title"
+                    />
+                    <label htmlFor={`seller-sample-upload-${index}`} className="swiss-btn ghost w-full justify-center cursor-pointer mb-3">
+                      <Upload size={12}/> {uploadingIndex === index ? 'Uploading...' : sample.storagePath ? 'Replace upload' : 'Upload image'}
+                    </label>
+                    <input
+                      id={`seller-sample-upload-${index}`}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      onChange={event => uploadSampleImage(index, event)}
+                      className="sr-only"
+                    />
+                    <input
+                      value={sample.storagePath ? '' : sample.imageUrl}
+                      onChange={event => updateSample(index, 'imageUrl', event.target.value)}
+                      disabled={!!sample.storagePath}
+                      className="swiss-input mb-3"
+                      maxLength={500}
+                      placeholder={sample.storagePath ? 'Private upload attached' : 'Optional external image URL'}
+                    />
+                    <textarea
+                      value={sample.notes}
+                      onChange={event => updateSample(index, 'notes', event.target.value)}
+                      className="swiss-input min-h-[110px]"
+                      maxLength={500}
+                      placeholder="Process, tools, client, or provenance notes"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-7">
+              <label htmlFor="seller-app-process" className="label mb-2 block">Process notes / proof of work</label>
+              <textarea
+                id="seller-app-process"
+                value={form.processNotes}
+                onChange={event => updateField('processNotes', event.target.value)}
+                className="swiss-input min-h-[220px]"
+                maxLength={1200}
+                placeholder="Describe your process, tools, source files, sketches, screen recordings, or other evidence admins should check."
+              />
+            </div>
+            <div className="lg:col-span-5 hair-all bg-[var(--bg)] p-5">
+              <div className="label">Review packet</div>
+              <div className="space-y-3 mt-4 text-[13px]">
+                {[
+                  ['Studio', form.studioName || 'Missing'],
+                  ['Links', String((form.portfolioUrl ? 1 : 0) + form.profileLinks.filter(link => link.url.trim()).length)],
+                  ['Samples', String(form.sampleWorks.filter(sample => sample.title.trim() || sample.imageUrl.trim() || sample.storagePath || sample.notes.trim()).length)],
+                  ['Statement', form.artistStatement.trim() ? 'Added' : 'Optional'],
+                ].map(([label, value]) => (
+                  <div key={label} className="hair-b pb-3 flex justify-between gap-4 last:border-0">
+                    <span className="text-[var(--muted)]">{label}</span>
+                    <span className="mono text-right">{value}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[12px] text-[var(--muted)] leading-relaxed mt-5">
+                Approval creates the studio row, verifies the seller profile, and unlocks listings. Rejection keeps the account signed in but seller tools remain locked.
+              </p>
+              {formValid && (
+                <div className="mt-5 flex items-center gap-2 text-[12px]">
+                  <span className="w-5 h-5 bg-[var(--good)] text-white inline-flex items-center justify-center"><Check size={12}/></span>
+                  Ready for admin review
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {error && <div className="text-[12px] text-[var(--accent)] mt-4">{error}</div>}
       </div>
 
@@ -155,9 +385,20 @@ export const SellerApplicationForm = ({ profile, application, onSubmit }) => {
         >
           Save draft
         </button>
-        <button type="submit" disabled={saving || !formValid} className={`swiss-btn accent ${saving || !formValid ? 'opacity-60 cursor-not-allowed' : ''}`}>
-          {saving ? 'Submitting...' : 'Submit for review'} <ArrowRight size={12}/>
-        </button>
+        {step > 0 && (
+          <button type="button" onClick={() => setStep(current => Math.max(0, current - 1))} className="swiss-btn ghost justify-center">
+            <ChevronLeft size={12}/> Back
+          </button>
+        )}
+        {step < steps.length - 1 ? (
+          <button type="button" onClick={() => setStep(current => Math.min(steps.length - 1, current + 1))} className="swiss-btn justify-center">
+            Next <ArrowRight size={12}/>
+          </button>
+        ) : (
+          <button type="submit" disabled={saving || !formValid || uploadingIndex !== null} className={`swiss-btn accent ${saving || !formValid || uploadingIndex !== null ? 'opacity-60 cursor-not-allowed' : ''}`}>
+            {saving ? 'Submitting...' : 'Submit for review'} <ArrowRight size={12}/>
+          </button>
+        )}
       </div>
     </form>
   );
