@@ -8,6 +8,8 @@ import { SellerApplicationForm, SellerStudioForm, SellerArtworkForm, SellerCommi
 import { fmt, formatTime, relativeTime } from '../lib/ui';
 import { ARTWORKS, COMMISSIONS } from '../lib/catalogue';
 import { fetchMySellerApplication, submitSellerApplication } from '../lib/onboarding';
+import { fetchArtistAuctionSettlements } from '../lib/auctions';
+import { artistPayoutFromAuction } from '../lib/domain';
 
 export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist, commissionState, onOpenCommissionThread, onSubmitStudio, onSubmitArtwork, onUploadArtworkImage, onSubmitCommission }) => {
   const [tab, setTab] = useState(() => ownedArtist && profile?.verified ? 'overview' : 'onboarding');
@@ -17,6 +19,9 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
   const [applicationLoading, setApplicationLoading] = useState(false);
   const [applicationError, setApplicationError] = useState('');
   const [commissionNotice, setCommissionNotice] = useState('');
+  const [sellerSettlements, setSellerSettlements] = useState([]);
+  const [settlementLoading, setSettlementLoading] = useState(false);
+  const [settlementError, setSettlementError] = useState('');
   const sellerVerified = profile?.verified === true;
   const canManageStudio = sellerVerified && !!ownedArtist;
   const canCreateStudio = sellerVerified;
@@ -25,6 +30,10 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
   const sellerBookings = commissionState?.artistBookings || [];
   const escrowTotal = sellerBookings.reduce((total, booking) => total + Number(booking.price || 0), 0);
   const auctionTotal = ownedWorks.reduce((total, work) => total + Number(work.currentBid || 0), 0);
+  const auctionSettlementTotal = sellerSettlements.reduce((total, settlement) => total + artistPayoutFromAuction(Number(settlement.amount || 0)), 0);
+  const pendingAuctionSettlementTotal = sellerSettlements
+    .filter(settlement => settlement.status === 'invoice_pending')
+    .reduce((total, settlement) => total + artistPayoutFromAuction(Number(settlement.amount || 0)), 0);
   const openSlots = ownedCommissions.reduce((sum, c) => sum + Math.max(0, c.slots - c.taken), 0);
   const displayName = ownedArtist?.handle || profile?.handle || profile?.display_name || 'seller';
   const guardedSetTab = (next) => {
@@ -78,6 +87,29 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
     else if (sellerVerified && !ownedArtist && !['setup', 'onboarding'].includes(tab)) setTab('setup');
     else if (sellerVerified && ownedArtist && tab === 'onboarding' && application?.status === 'approved') setTab('overview');
   }, [sellerVerified, ownedArtist, tab, application?.status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!canManageStudio || !ownedArtist?.id) {
+      setSellerSettlements([]);
+      return undefined;
+    }
+
+    setSettlementLoading(true);
+    setSettlementError('');
+    fetchArtistAuctionSettlements(ownedArtist.id)
+      .then(rows => {
+        if (!cancelled) setSellerSettlements(rows);
+      })
+      .catch(err => {
+        if (!cancelled) setSettlementError(err.message || 'Auction settlements unavailable.');
+      })
+      .finally(() => {
+        if (!cancelled) setSettlementLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [canManageStudio, ownedArtist?.id]);
 
   const handleSubmitApplication = async (payload) => {
     if (!profile?.id) throw new Error('Authentication is required.');
@@ -429,7 +461,7 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
 
       {tab === 'payouts' && (
         <div>
-          <div className="hair-all p-6 mb-8 bg-[var(--card)] grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="hair-all p-6 mb-8 bg-[var(--card)] grid grid-cols-1 md:grid-cols-5 gap-6">
             <div className="md:col-span-2">
               <div className="label">Escrow due (net)</div>
               <div className="display text-[48px] mt-2 leading-none">${fmt(Math.round(escrowTotal * 0.85))}</div>
@@ -442,6 +474,12 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
               <div className="mono text-[20px] mt-1">${fmt(escrowTotal)}</div>
               <div className="label mt-3">Platform fee</div>
               <div className="mono text-[14px] text-[var(--muted)] mt-1">-${fmt(Math.round(escrowTotal * 0.15))} (15%)</div>
+            </div>
+            <div>
+              <div className="label">Auction invoices</div>
+              <div className="mono text-[20px] mt-1">${fmt(pendingAuctionSettlementTotal)}</div>
+              <div className="label mt-3">Settled hammer</div>
+              <div className="mono text-[14px] text-[var(--muted)] mt-1">${fmt(auctionSettlementTotal)}</div>
             </div>
             <div className="flex flex-col justify-end">
               <button
@@ -492,6 +530,57 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
             <div className="hair-all bg-[var(--card)] p-10 text-center">
               <div className="display text-[24px]">No escrow yet.</div>
               <p className="text-[14px] text-[var(--muted)] mt-2">Booked commissions accrue here; net pays out at 85% after delivery.</p>
+            </div>
+          )}
+
+          <div className="hair-b pb-3 mb-4 mt-10">
+            <h3 className="display text-[24px]">Auction settlements</h3>
+          </div>
+          {settlementError && (
+            <div className="hair-all bg-[var(--accent-soft)] text-[var(--accent)] p-3 text-[13px] mb-4">{settlementError}</div>
+          )}
+          {sellerSettlements.length ? (
+            <div className="overflow-x-auto">
+              <div className="min-w-[860px] grid grid-cols-12 gap-4 label hair-b pb-2">
+                <div className="col-span-1">No.</div>
+                <div className="col-span-4">Artwork</div>
+                <div className="col-span-2">Invoice</div>
+                <div className="col-span-2">Status</div>
+                <div className="col-span-1 text-right">Hammer</div>
+                <div className="col-span-2 text-right">Artist due</div>
+              </div>
+              {sellerSettlements.map((settlement, i) => (
+                <button
+                  key={settlement.id}
+                  type="button"
+                  onClick={() => goToArtwork(settlement.artworkId)}
+                  className="min-w-[860px] w-full grid grid-cols-12 gap-4 py-3 hair-b items-center text-[13px] text-left hover:bg-[var(--card)] transition-colors"
+                >
+                  <div className="col-span-1 mono text-[11px] text-[var(--muted)]">{String(i+1).padStart(3,'0')}</div>
+                  <div className="col-span-4 flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 hair-all flex-shrink-0">
+                      <ArtVisual visual={settlement.artwork?.visual} imageUrl={settlement.artwork?.imageUrl} alt={settlement.artwork?.title || settlement.artworkId}/>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate">{settlement.artwork?.title || settlement.artworkId}</div>
+                      <div className="mono text-[10px] text-[var(--muted)] mt-1">{settlement.closedAt ? relativeTime(settlement.closedAt) : 'not closed'}</div>
+                    </div>
+                  </div>
+                  <div className="col-span-2 mono text-[11px] truncate">{settlement.invoiceReference || 'No invoice'}</div>
+                  <div className="col-span-2">
+                    <span className={`mono text-[9px] uppercase tracking-[0.1em] px-1.5 py-0.5 ${settlement.status === 'paid' ? 'bg-[var(--good)] text-white' : settlement.status === 'invoice_pending' ? 'bg-[var(--accent)] text-white' : 'hair-all text-[var(--muted)]'}`}>
+                      {settlement.status.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  <div className="col-span-1 mono text-right">${fmt(settlement.amount)}</div>
+                  <div className="col-span-2 mono text-right font-medium">${fmt(artistPayoutFromAuction(settlement.amount))}</div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="hair-all bg-[var(--card)] p-10 text-center">
+              <div className="display text-[24px]">{settlementLoading ? 'Loading settlements.' : 'No auction settlements yet.'}</div>
+              <p className="text-[14px] text-[var(--muted)] mt-2">Closed auction invoices and paid hammer totals will appear here.</p>
             </div>
           )}
         </div>

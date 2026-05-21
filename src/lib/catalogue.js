@@ -46,7 +46,7 @@ export function setCatalogue(marketplace) {
   ARTWORKS = (marketplace.artworks || []).filter(work =>
     isArtworkActive(work) && !work.takenDown && !suspendedIds.has(work.artist)
   );
-  COMMISSIONS = marketplace.commissions || [];
+  COMMISSIONS = (marketplace.commissions || []).filter(commission => !suspendedIds.has(commission.artist));
   // Rule 3: drop feed posts older than 5 days client-side.
   FEED_POSTS = (marketplace.feedPosts || []).filter(post => isFeedPostFresh(post));
 }

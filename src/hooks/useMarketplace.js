@@ -54,20 +54,6 @@ export function useMarketplace() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!userId) {
-      setLikes({});
-      setFollows({});
-      setWatchlist({});
-      setPostLikes({});
-      setSavedPosts({});
-      setBids({});
-      setUserBids([]);
-      setPurchases([]);
-      setAuctionSettlements([]);
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
 
     async function loadAll() {
@@ -86,6 +72,26 @@ export function useMarketplace() {
           fetchCommissions(),
           fetchFeedPosts(),
         ]), 'Catalogue load');
+
+        if (cancelled) return;
+
+        setArtists(artistsData);
+        setArtworks(artworksData);
+        setCommissions(commissionsData);
+        setFeedPosts(feedData);
+
+        if (!userId) {
+          setLikes({});
+          setFollows({});
+          setWatchlist({});
+          setPostLikes({});
+          setSavedPosts({});
+          setBids({});
+          setUserBids([]);
+          setPurchases([]);
+          setAuctionSettlements([]);
+          return;
+        }
 
         const userInteractionResults = await Promise.allSettled([
           withTimeout(fetchUserLikes(userId), 'Likes load', 8000),
@@ -115,10 +121,6 @@ export function useMarketplace() {
 
         if (cancelled) return;
 
-        setArtists(artistsData);
-        setArtworks(artworksData);
-        setCommissions(commissionsData);
-        setFeedPosts(feedData);
         setLikes(likesData);
         setFollows(followsData);
         setWatchlist(watchData);

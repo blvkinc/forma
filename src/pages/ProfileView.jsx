@@ -2,10 +2,17 @@
 // FORMA — Profile / account settings
 // ============================================================
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, Check, Lock, Mail, Trash2, AlertCircle, UserPlus, Heart, Bookmark } from 'lucide-react';
+import { ArrowRight, Check, Lock, Mail, Trash2, AlertCircle, UserPlus, Heart, Bookmark, Webhook, Plus, Pause, Play } from 'lucide-react';
 import { roleLabel, isBuyerRole, isSellerRole, isAdminRole, fmt, relativeTime } from '../lib/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadAvatar } from '../lib/account';
+import {
+  WEBHOOK_EVENT_OPTIONS,
+  createWebhookEndpoint,
+  deleteWebhookEndpoint,
+  fetchWebhookEndpoints,
+  updateWebhookEndpoint,
+} from '../lib/webhooks';
 
 export const ProfileView = ({ user, profile, role, updateProfile, marketplace, setView, goToArtwork, goToArtist, toggleFollow }) => {
   const [form, setForm] = useState({
@@ -25,6 +32,10 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
   const [confirmDelete, setConfirmDelete] = useState('');
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState('');
+  const [webhookEndpoints, setWebhookEndpoints] = useState([]);
+  const [webhookForm, setWebhookForm] = useState({ url: '', events: ['notification.created'] });
+  const [webhookBusy, setWebhookBusy] = useState('');
+  const [webhookStatus, setWebhookStatus] = useState(null);
 
   const handleAvatar = async (file) => {
     setAvatarBusy(true);
@@ -82,6 +93,22 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
     });
   }, [profile]);
 
+  useEffect(() => {
+    let alive = true;
+    if (!user?.id) {
+      setWebhookEndpoints([]);
+      return () => { alive = false; };
+    }
+
+    fetchWebhookEndpoints(user.id)
+      .then(rows => { if (alive) setWebhookEndpoints(rows); })
+      .catch(err => {
+        if (alive) setWebhookStatus({ type: 'error', text: err.message || 'Webhook endpoints failed to load.' });
+      });
+
+    return () => { alive = false; };
+  }, [user?.id]);
+
   const updateField = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setStatus(null);
@@ -104,6 +131,64 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
       setStatus({ type: 'error', text: err.message || 'Profile update failed.' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const toggleWebhookEvent = (eventValue) => {
+    setWebhookStatus(null);
+    setWebhookForm(prev => {
+      if (eventValue === '*') {
+        return { ...prev, events: prev.events.includes('*') ? ['notification.created'] : ['*'] };
+      }
+
+      const withoutWildcard = prev.events.filter(value => value !== '*');
+      const next = withoutWildcard.includes(eventValue)
+        ? withoutWildcard.filter(value => value !== eventValue)
+        : [...withoutWildcard, eventValue];
+      return { ...prev, events: next.length ? next : ['notification.created'] };
+    });
+  };
+
+  const handleCreateWebhook = async (event) => {
+    event.preventDefault();
+    setWebhookBusy('create');
+    setWebhookStatus(null);
+    try {
+      const endpoint = await createWebhookEndpoint(user?.id, webhookForm);
+      setWebhookEndpoints(prev => [endpoint, ...prev]);
+      setWebhookForm({ url: '', events: ['notification.created'] });
+      setWebhookStatus({ type: 'success', text: 'Webhook endpoint saved.' });
+    } catch (err) {
+      setWebhookStatus({ type: 'error', text: err.message || 'Webhook endpoint failed.' });
+    } finally {
+      setWebhookBusy('');
+    }
+  };
+
+  const handleWebhookStatus = async (endpoint, status) => {
+    const key = `${endpoint.id}:${status}`;
+    setWebhookBusy(key);
+    setWebhookStatus(null);
+    try {
+      const updated = await updateWebhookEndpoint(endpoint.id, { status });
+      setWebhookEndpoints(prev => prev.map(item => item.id === updated.id ? updated : item));
+    } catch (err) {
+      setWebhookStatus({ type: 'error', text: err.message || 'Webhook status update failed.' });
+    } finally {
+      setWebhookBusy('');
+    }
+  };
+
+  const handleDeleteWebhook = async (endpointId) => {
+    setWebhookBusy(`${endpointId}:delete`);
+    setWebhookStatus(null);
+    try {
+      await deleteWebhookEndpoint(endpointId);
+      setWebhookEndpoints(prev => prev.filter(item => item.id !== endpointId));
+    } catch (err) {
+      setWebhookStatus({ type: 'error', text: err.message || 'Webhook removal failed.' });
+    } finally {
+      setWebhookBusy('');
     }
   };
 
@@ -337,6 +422,119 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
                   )}
                 </div>
               </section>
+            </div>
+          </div>
+
+          <div className="hair-all bg-[var(--card)] p-6">
+            <div className="flex justify-between items-start gap-4 hair-b pb-5 mb-6">
+              <div>
+                <div className="label flex items-center gap-2"><Webhook size={12}/> Webhooks</div>
+                <h2 className="display text-[32px] mt-2">Endpoint delivery.</h2>
+              </div>
+              <div className="mono text-[10px] uppercase tracking-[0.1em] text-[var(--muted)]">
+                {webhookEndpoints.length} endpoints
+              </div>
+            </div>
+
+            {webhookStatus && (
+              <div className={`hair-all p-3 mb-5 text-[13px] ${webhookStatus.type === 'error' ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'bg-[var(--bg-2)] text-[var(--good)]'}`}>
+                {webhookStatus.text}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateWebhook} className="grid grid-cols-12 gap-4 items-end">
+              <div className="col-span-7">
+                <label htmlFor="webhook-url" className="label mb-2 block">Endpoint URL</label>
+                <input
+                  id="webhook-url"
+                  type="url"
+                  className="swiss-input"
+                  value={webhookForm.url}
+                  onChange={event => {
+                    setWebhookForm(prev => ({ ...prev, url: event.target.value }));
+                    setWebhookStatus(null);
+                  }}
+                  placeholder="https://api.studio.com/forma"
+                  autoComplete="url"
+                  required
+                />
+              </div>
+              <div className="col-span-3">
+                <div className="label mb-2">Events</div>
+                <div className="flex flex-wrap gap-2">
+                  {WEBHOOK_EVENT_OPTIONS.map(option => {
+                    const active = webhookForm.events.includes(option.value);
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => toggleWebhookEvent(option.value)}
+                        className={`hair-all px-2.5 py-2 mono text-[9px] uppercase tracking-[0.08em] transition-colors ${active ? 'bg-[var(--ink)] text-[var(--bg)]' : 'bg-transparent text-[var(--ink)] hover:bg-[var(--bg-2)]'}`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="col-span-2 flex justify-end">
+                <button type="submit" disabled={webhookBusy === 'create'} className={`swiss-btn accent ${webhookBusy === 'create' ? 'opacity-60 cursor-wait' : ''}`}>
+                  {webhookBusy === 'create' ? 'Saving...' : 'Add'} <Plus size={12}/>
+                </button>
+              </div>
+            </form>
+
+            <div className="space-y-3 mt-6">
+              {webhookEndpoints.map(endpoint => (
+                <div key={endpoint.id} className="hair-all p-4 grid grid-cols-12 gap-4 items-center">
+                  <div className="col-span-6 min-w-0">
+                    <div className="text-[14px] truncate">{endpoint.url}</div>
+                    <div className="mono text-[10px] text-[var(--muted)] uppercase tracking-[0.08em] mt-1">
+                      {endpoint.events.includes('*') ? 'All events' : endpoint.events.join(', ')}
+                    </div>
+                  </div>
+                  <div className="col-span-2">
+                    <span className={`inline-flex px-2.5 py-1 mono text-[9px] uppercase tracking-[0.1em] ${endpoint.status === 'active' ? 'bg-[var(--good)] text-white' : 'hair-all text-[var(--muted)]'}`}>
+                      {endpoint.status}
+                    </span>
+                  </div>
+                  <div className="col-span-4 flex justify-end gap-2">
+                    {endpoint.status === 'active' ? (
+                      <button
+                        type="button"
+                        onClick={() => handleWebhookStatus(endpoint, 'paused')}
+                        disabled={webhookBusy === `${endpoint.id}:paused`}
+                        className="swiss-btn ghost"
+                      >
+                        Pause <Pause size={12}/>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleWebhookStatus(endpoint, 'active')}
+                        disabled={webhookBusy === `${endpoint.id}:active`}
+                        className="swiss-btn ghost"
+                      >
+                        Activate <Play size={12}/>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteWebhook(endpoint.id)}
+                      disabled={webhookBusy === `${endpoint.id}:delete`}
+                      className="swiss-btn ghost"
+                    >
+                      Delete <Trash2 size={12}/>
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {webhookEndpoints.length === 0 && (
+                <div className="hair-all p-5 text-[13px] text-[var(--muted)]">
+                  No webhook endpoints saved.
+                </div>
+              )}
             </div>
           </div>
 

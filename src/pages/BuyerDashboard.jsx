@@ -54,7 +54,7 @@ export const BuyerDashboard = ({ goToArtwork, likes, toggleLike, userBids, purch
           {l:'Active bids', v:String(activeBidRows.length), d: activeBidRows.length ? 'Loaded from bid history' : 'No bids loaded yet'},
           {l:'Invoices', v:`$${fmt(pendingInvoiceTotal)}`, d:`${invoiceRows.filter(row => row.settlement.status === 'invoice_pending').length} pending auction win${invoiceRows.filter(row => row.settlement.status === 'invoice_pending').length === 1 ? '' : 's'}`},
           {l:'In escrow', v:`$${fmt(escrowTotal)}`, d:`${buyerBookings.length} commission${buyerBookings.length === 1 ? '' : 's'}`},
-          {l:'Acquired', v:String(acquiredRows.length), d: acquiredRows.length ? `$${fmt(acquisitionTotal)} settled in prototype checkout` : 'No settled works yet'},
+          {l:'Acquired', v:String(acquiredRows.length), d: acquiredRows.length ? `$${fmt(acquisitionTotal)} settled through paid invoices` : 'No settled works yet'},
           {l:'Watching', v:String(watchedWorks.length), d: watchedWorks.length ? `${watchedWorks.filter(w => w.endsAt < 1000*60*60*24).length} ending today` : 'No saved auctions yet'},
         ].map((s,i) => (
           <div key={i} className="hair-all p-5 bg-[var(--card)] motion-stat">
@@ -229,7 +229,7 @@ export const BuyerDashboard = ({ goToArtwork, likes, toggleLike, userBids, purch
           <div className="hair-all p-10 text-center bg-[var(--card)]">
             <ImageIcon size={22} className="mx-auto text-[var(--muted)]"/>
             <div className="display text-[28px] mt-3">No acquired works yet.</div>
-            <p className="text-[14px] text-[var(--muted)] mt-2">Use the artwork checkout adapter to record a prototype acquisition and unlock its authenticity seal.</p>
+            <p className="text-[14px] text-[var(--muted)] mt-2">Paid auction invoices will unlock acquired works and authenticity seals here.</p>
           </div>
         )
       )}

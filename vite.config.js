@@ -774,4 +774,18 @@ function formaCatalogueApi() {
 
 export default defineConfig({
   plugins: [react(), formaCatalogueApi()],
+  build: {
+    rolldownOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('react')) return 'react-vendor';
+          if (id.includes('@supabase')) return 'supabase-vendor';
+          if (id.includes('lucide-react')) return 'icons-vendor';
+          if (id.includes('gsap')) return 'animation-vendor';
+          return 'vendor';
+        },
+      },
+    },
+  },
 });

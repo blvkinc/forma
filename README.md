@@ -25,6 +25,7 @@ npm run build
 npm run preview
 npm test          # domain rules + SQL-parity unit tests (node --test)
 npm run qa:smoke  # Supabase production-readiness smoke checks
+npm run qa:bootstrap # create/reuse buyer + verified seller QA accounts
 ```
 
 `npm run qa:smoke` always checks public catalogue reads, anonymous write
@@ -47,6 +48,16 @@ The smoke runner avoids payment flows. Buyer social/AI actions are cleaned up
 after the check. Verified seller feed and storage checks are also cleaned up.
 Reports and commission bookings are persistent by design, so those checks only
 run when `QA_ALLOW_PERSISTENT_WRITES=true`.
+
+If you already have a verified admin account, `npm run qa:bootstrap` can fill
+the remaining buyer/seller QA credentials. Run it with `QA_ADMIN_EMAIL` and
+`QA_ADMIN_PASSWORD` in the environment. It signs up a buyer and seller, submits
+the seller onboarding packet, approves it through the admin session, and writes
+the generated buyer/seller credentials to ignored `.env.qa.local`.
+When Supabase Auth email confirmation or rate limits block public signup, the
+script can seed only `forma.qa.*` users directly through Postgres. For local
+machines without IPv6 database access, set `SUPABASE_DB_URL` to the IPv4
+pooler connection string from Supabase Database settings before running it.
 
 ## Marketplace Rules (DB-enforced)
 
@@ -81,6 +92,19 @@ Additional production-readiness migrations add:
   comments/messages, reports, AI votes, bids, and commission bookings.
 - `041_delivery_worker_claims.sql` - service-role RPCs for claiming and
   completing delivery outbox rows with retry/backoff.
+- `042_webhook_endpoint_guard.sql` - validates webhook endpoint ownership,
+  HTTPS URLs, and supported event filters.
+- `043_webhook_event_filters.sql` - adds specific webhook event filters for
+  auction, commission, social, seller-review, AI-proof, and drop-alert events.
+- `044_marketplace_business_rule_constraints.sql` - enforces public marketplace
+  visibility in RLS, adds explicit Data API grants, and protects money/count/
+  slot/content invariants.
+- `045_auth_role_self_assignment_hardening.sql` - prevents user-controlled auth
+  metadata or profile inserts from self-assigning admin/verified roles.
+- `046_profile_privacy_cards.sql` - removes public full-profile reads and
+  exposes only limited public profile cards for social display.
+- `047_disable_client_side_purchase_adapter.sql` - disables buyer-created
+  purchase rows so acquisitions are settlement/payment-created only.
 
 For staging QA, run `supabase/fixtures/production_readiness_seed.sql` after the
 migrations if the live project has empty feed/admin/social queues. It creates

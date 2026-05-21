@@ -16,7 +16,7 @@ const PAGES = {
       ['Commissions', 'Commission slots are prepaid and held in escrow until the work is delivered and accepted. Disputes are reviewed by FORMA admins.'],
       ['Fees', 'FORMA takes a flat 12% platform fee on settled sales. Net payouts to studios are 85% of escrow after fees, paid on the studio’s payout schedule.'],
       ['Authenticity', 'Listings may be flagged by the community for suspected AI generation. Sellers can restore a flagged listing by submitting process proof. Repeated abuse can lead to removal.'],
-      ['Prototype notice', 'This deployment is a working prototype. Checkout records acquisitions for demonstration and does not move real funds.'],
+      ['Payment status', 'Checkout and payout rails are not enabled yet. Auction invoices and commission escrow states are modeled in the platform, but real fund movement requires the payment gateway integration.'],
     ],
   },
   privacy: {
@@ -54,7 +54,7 @@ const PAGES = {
       ['Status', 'There is no public API yet. The application talks to Supabase directly with row-level security enforced per role.'],
       ['Planned', 'A read API for public catalogue data (artists, live auctions, open commissions) is on the roadmap. Write access will stay behind authenticated sessions.'],
       ['Webhooks', 'Outbound webhooks for auction-close and commission-state events are planned alongside the close-out pipeline.'],
-      ['Contact', 'For integration questions during the prototype phase, reach the team at api@forma.studio.'],
+      ['Contact', 'For integration and platform questions, reach the team at api@forma.studio.'],
     ],
   },
 };

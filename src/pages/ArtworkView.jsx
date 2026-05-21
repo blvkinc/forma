@@ -37,8 +37,6 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSending, setCommentSending] = useState(false);
   const [commentError, setCommentError] = useState('');
-  const [purchaseSaving, setPurchaseSaving] = useState(false);
-  const [purchaseNotice, setPurchaseNotice] = useState('');
   const authenticity = authenticityMeta(work.authenticityStatus);
   const isRestricted = work.authenticityStatus === 'restricted';
   const isArtistOwner = artist.profileId === user?.id;
@@ -46,7 +44,6 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
   const hasPurchased = (purchases || []).some(purchase => purchase.artworkId === work.id);
   const canVoteAi = (isBuyerRole(role) || isSellerRole(role)) && !isArtistOwner;
   const canSubmitProof = isSellerRole(role) && isArtistOwner;
-  const canRecordPurchase = isBuyerRole(role) && !isArtistOwner;
   const canComment = !isAdmin;
   useEffect(() => {
     const i = setInterval(() => setTimeLeft(t => Math.max(0, t - 1000)), 1000);
@@ -201,19 +198,6 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
       setAuthSaving(false);
     }
   };
-  const recordAcquisition = async () => {
-    if (!canRecordPurchase || !recordPurchase) return;
-    setPurchaseSaving(true);
-    setPurchaseNotice('');
-    const result = await recordPurchase(work.id, currentTopBid);
-    setPurchaseSaving(false);
-    if (result?.error) {
-      setPurchaseNotice(result.error);
-      return;
-    }
-    setPurchaseNotice('Prototype acquisition recorded. The private authenticity seal is now available.');
-  };
-
   return (
     <main className="fade-in max-w-[1440px] mx-auto px-8 py-10">
       <div className="hair-b pb-4 mb-8 flex items-center justify-between">
@@ -357,28 +341,12 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
               <div className="mt-2 label">
                 Authorised at bid · captured only on winning · refunded if outbid
               </div>
-              {canRecordPurchase && (
+              {isBuyerRole(role) && !isArtistOwner && (
                 <div className="mt-4 hair-all p-4 bg-[var(--bg)] motion-copy">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="label">Checkout adapter</div>
-                      <p className="text-[12px] text-[var(--muted)] mt-2 leading-relaxed">
-                        Stripe escrow is still pending. This records a prototype acquisition, stores the buyer purchase row, and unlocks the private authenticity seal.
-                      </p>
-                    </div>
-                    <button
-                      onClick={recordAcquisition}
-                      disabled={purchaseSaving || hasPurchased}
-                      className={`swiss-btn ghost flex-shrink-0 ${purchaseSaving || hasPurchased ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      {hasPurchased ? 'Acquired' : purchaseSaving ? 'Recording...' : 'Record acquisition'}
-                    </button>
-                  </div>
-                  {purchaseNotice && (
-                    <div className={`mt-3 text-[12px] ${purchaseNotice.toLowerCase().includes('recorded') ? 'text-[var(--good)]' : 'text-[var(--accent)]'}`}>
-                      {purchaseNotice}
-                    </div>
-                  )}
+                  <div className="label">Checkout pending</div>
+                  <p className="text-[12px] text-[var(--muted)] mt-2 leading-relaxed">
+                    Auction invoices are generated at close-out. Payments and authenticity-seal unlocks are completed from the buyer dashboard once the payment gateway is connected.
+                  </p>
                 </div>
               )}
               <div className="flex gap-2 mt-3">

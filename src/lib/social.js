@@ -5,7 +5,7 @@ async function authorsFor(rows) {
   if (!ids.length) return {};
 
   const { data, error } = await supabase
-    .from('profiles')
+    .from('profile_cards')
     .select('id, display_name, handle, avatar_url')
     .in('id', ids);
 

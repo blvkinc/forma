@@ -26,20 +26,7 @@ export async function fetchUserPurchases(userId) {
 export async function recordArtworkPurchase(userId, artworkId, amount) {
   if (!userId) return { error: 'Authentication is required.' };
   if (!artworkId) return { error: 'Artwork is required.' };
-
-  const { data, error } = await supabase
-    .from('purchases')
-    .upsert(
-      {
-        buyer_id: userId,
-        artwork_id: artworkId,
-        amount: Number(amount || 0),
-      },
-      { onConflict: 'artwork_id,buyer_id' }
-    )
-    .select('*')
-    .single();
-
-  if (error) return { error: error.message || 'Purchase could not be recorded.' };
-  return { data: transformPurchase(data) };
+  return {
+    error: 'Checkout is not enabled yet. Purchases are created only after an auction invoice is marked paid.',
+  };
 }

@@ -33,6 +33,39 @@ export async function fetchUserAuctionSettlements(userId) {
   return (data || []).map(transformAuctionSettlement).filter(Boolean);
 }
 
+export async function fetchArtistAuctionSettlements(artistId) {
+  if (!artistId) return [];
+
+  const { data: works, error: worksError } = await supabase
+    .from('artworks')
+    .select('id, title, visual, image_url')
+    .eq('artist_id', artistId);
+  if (worksError) throw worksError;
+
+  const workMap = new Map((works || []).map(work => [work.id, {
+    id: work.id,
+    title: work.title,
+    visual: work.visual,
+    imageUrl: work.image_url,
+  }]));
+  const artworkIds = [...workMap.keys()];
+  if (!artworkIds.length) return [];
+
+  const { data, error } = await supabase
+    .from('auction_settlements')
+    .select('*')
+    .in('artwork_id', artworkIds)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || [])
+    .map(row => {
+      const settlement = transformAuctionSettlement(row);
+      return settlement ? { ...settlement, artwork: workMap.get(settlement.artworkId) || null } : null;
+    })
+    .filter(Boolean);
+}
+
 export async function closeEndedAuction(artworkId) {
   const { data, error } = await supabase.rpc('close_ended_auction', {
     p_artwork_id: artworkId,

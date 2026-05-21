@@ -20,14 +20,12 @@ const ADMIN_TABLES = [
 ];
 
 const QA_ACTIVITY_TABLES = [
-  'feed_posts',
   'seller_applications',
   'reports',
   'artwork_ai_votes',
 ];
 
 const ACTIVITY_FIXTURE_HINTS = {
-  feed_posts: 'run supabase/fixtures/production_readiness_seed.sql for social/feed E2E',
   seller_applications: 'run supabase/fixtures/production_readiness_missing_queues.sql for seller onboarding E2E',
   reports: 'run supabase/fixtures/production_readiness_missing_queues.sql for admin moderation E2E',
   artwork_ai_votes: 'run supabase/fixtures/production_readiness_missing_queues.sql for AI review E2E',
@@ -146,12 +144,24 @@ async function publicChecks(client) {
     })
   );
 
+  return counts;
+}
+
+async function publicActivityReadinessChecks(counts) {
   if ((counts.feed_posts || 0) === 0) {
-    log('WARN', 'feed QA data missing', 'run supabase/fixtures/production_readiness_seed.sql for social/feed E2E');
+    log('WARN', 'feed_posts readiness', '0 rows; run supabase/fixtures/production_readiness_seed.sql for social/feed E2E');
+  } else {
+    log('PASS', 'feed_posts readiness', `${counts.feed_posts} rows`);
   }
 }
 
-async function activityReadinessChecks(client) {
+async function adminActivityReadinessChecks(session) {
+  if (!session) {
+    log('SKIP', 'admin queue readiness', 'set QA_ADMIN_EMAIL and QA_ADMIN_PASSWORD to count admin-only queues through RLS');
+    return;
+  }
+
+  const { client } = session;
   for (const table of QA_ACTIVITY_TABLES) {
     const { count, error } = await client.from(table).select('*', { count: 'exact', head: true });
     if (error) {
@@ -236,6 +246,31 @@ async function buyerChecks(session) {
   await client.from('artwork_ai_votes').delete().eq('artwork_id', artwork.id).eq('voter_id', user.id);
   log('PASS', 'buyer AI vote/remove');
 
+  const { data: webhook, error: webhookError } = await client
+    .from('webhook_endpoints')
+    .insert({
+      user_id: user.id,
+      url: `https://example.com/forma-qa/${uniqueId('webhook')}`,
+      events: ['notification.outbid'],
+      status: 'active',
+    })
+    .select('id, status')
+    .single();
+  if (webhookError) throw new Error(`buyer webhook create failed: ${webhookError.message}`);
+
+  const { error: pauseWebhookError } = await client
+    .from('webhook_endpoints')
+    .update({ status: 'paused' })
+    .eq('id', webhook.id);
+  if (pauseWebhookError) throw new Error(`buyer webhook pause failed: ${pauseWebhookError.message}`);
+
+  const { error: deleteWebhookError } = await client
+    .from('webhook_endpoints')
+    .delete()
+    .eq('id', webhook.id);
+  if (deleteWebhookError) throw new Error(`buyer webhook delete failed: ${deleteWebhookError.message}`);
+  log('PASS', 'buyer webhook create/pause/delete');
+
   if (!isEnabled('QA_ALLOW_PERSISTENT_WRITES')) {
     log('SKIP', 'buyer report/commission persistence', 'set QA_ALLOW_PERSISTENT_WRITES=true to create persistent report + cancelled booking rows');
     return;
@@ -302,6 +337,12 @@ async function sellerChecks(session) {
   if (artistError) throw new Error(`seller artist lookup failed: ${artistError.message}`);
   assertOk(artist?.id, 'verified seller needs an artists row.');
 
+  const { count: settlementCount, error: settlementError } = await client
+    .from('auction_settlements')
+    .select('*', { count: 'exact', head: true });
+  if (settlementError) throw new Error(`seller settlement read failed: ${settlementError.message}`);
+  log('PASS', 'seller settlement read', `${settlementCount ?? 0} visible rows`);
+
   const postId = uniqueId('qa_post');
   const { error: postError } = await client.from('feed_posts').insert({
     id: postId,
@@ -356,8 +397,8 @@ async function main() {
   const client = makeClient();
 
   log('INFO', 'FORMA production smoke', process.env.VITE_SUPABASE_URL);
-  await publicChecks(client);
-  await activityReadinessChecks(client);
+  const publicCounts = await publicChecks(client);
+  await publicActivityReadinessChecks(publicCounts);
 
   const buyer = await signInRole('buyer');
   await buyerChecks(buyer);
@@ -366,6 +407,7 @@ async function main() {
   await sellerChecks(seller);
 
   const admin = await signInRole('admin');
+  await adminActivityReadinessChecks(admin);
   await adminChecks(admin);
 
   log('DONE', 'smoke checks complete');
