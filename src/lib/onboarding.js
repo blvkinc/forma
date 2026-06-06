@@ -151,13 +151,26 @@ export function transformSellerApplication(row) {
 function applicationPayload(profileId, payload) {
   const sampleWorks = cleanSamples(payload.sampleWorks);
   const profileLinks = cleanProfileLinks(payload.profileLinks);
-  const portfolioUrl = cleanUrl(payload.portfolioUrl);
+  const portfolioUrl = cleanHttpsUrl(payload.portfolioUrl);
   const status = payload.status === 'draft' ? 'draft' : 'pending';
+  const completeSamples = sampleWorks.filter(sample =>
+    sample.title.length >= 2
+    && sample.notes.length >= 20
+    && (sample.storagePath || cleanHttpsUrl(sample.imageUrl))
+  );
 
   if (!profileId) throw new Error('Authentication is required.');
-  if (!cleanText(payload.studioName, 120)) throw new Error('Enter a studio name.');
-  if (status === 'pending' && !portfolioUrl && profileLinks.length === 0 && sampleWorks.length === 0) {
-    throw new Error('Add a portfolio URL, profile link, or at least one sample work.');
+  if (cleanText(payload.studioName, 120).length < 2) throw new Error('Enter a studio name.');
+  if (status === 'pending') {
+    if (cleanText(payload.artistStatement, 1200).length < 40) {
+      throw new Error('Add an artist statement of at least 40 characters.');
+    }
+    if (cleanText(payload.processNotes, 1200).length < 40) {
+      throw new Error('Add process notes or proof of work of at least 40 characters.');
+    }
+    if (!portfolioUrl && profileLinks.length === 0 && completeSamples.length === 0) {
+      throw new Error('Add an HTTPS portfolio/profile link or a completed sample with image and process notes.');
+    }
   }
 
   return {

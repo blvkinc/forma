@@ -8,6 +8,7 @@ import { ArtVisual } from '../components/shared';
 
 const emptySample = () => ({ title: '', imageUrl: '', storagePath: '', localFileId: '', previewUrl: '', notes: '' });
 const emptyProfileLink = () => ({ label: '', url: '' });
+const isHttpsUrl = (value) => /^https:\/\/[^\s]+$/i.test(String(value || '').trim());
 
 export const SellerApplicationForm = ({ profile, application, onSubmit, onUploadImage }) => {
   const steps = [
@@ -139,18 +140,33 @@ export const SellerApplicationForm = ({ profile, application, onSubmit, onUpload
     }
   };
 
-  const hasSample = form.sampleWorks.some(sample =>
-    sample.title.trim() || sample.imageUrl.trim() || sample.storagePath || sample.localFileId || sample.previewUrl || sample.notes.trim()
+  const completeSamples = form.sampleWorks.filter(sample =>
+    sample.title.trim().length >= 2
+    && sample.notes.trim().length >= 20
+    && (isHttpsUrl(sample.imageUrl) || sample.storagePath || sample.localFileId || sample.previewUrl)
   );
-  const hasProfileLink = form.profileLinks.some(link => link.url.trim());
-  const formValid = form.studioName.trim().length > 0
-    && (form.portfolioUrl.trim().length > 0 || hasProfileLink || hasSample);
+  const validProfileLinks = form.profileLinks.filter(link => isHttpsUrl(link.url));
+  const hasReviewSource = isHttpsUrl(form.portfolioUrl) || validProfileLinks.length > 0 || completeSamples.length > 0;
+  const missingRequirements = [
+    form.studioName.trim().length >= 2 ? '' : 'Enter a studio name.',
+    form.artistStatement.trim().length >= 40 ? '' : 'Add an artist statement of at least 40 characters.',
+    form.processNotes.trim().length >= 40 ? '' : 'Add process notes or proof of work of at least 40 characters.',
+    hasReviewSource ? '' : 'Add an HTTPS portfolio/profile link or a completed sample with image and process notes.',
+  ].filter(Boolean);
+  const formValid = missingRequirements.length === 0;
+  const canSaveDraft = form.studioName.trim().length >= 2;
   const activeStep = steps[step];
 
   const submit = async (event, status = 'pending') => {
     event.preventDefault();
-    if (status === 'pending' && !formValid) return;
-    if (status === 'draft' && !form.studioName.trim()) return;
+    if (status === 'pending' && !formValid) {
+      setError(missingRequirements[0] || 'Complete the required seller review fields.');
+      return;
+    }
+    if (status === 'draft' && !canSaveDraft) {
+      setError('Enter a studio name before saving a draft.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -351,9 +367,9 @@ export const SellerApplicationForm = ({ profile, application, onSubmit, onUpload
               <div className="space-y-3 mt-4 text-[13px]">
                 {[
                   ['Studio', form.studioName || 'Missing'],
-                  ['Links', String((form.portfolioUrl ? 1 : 0) + form.profileLinks.filter(link => link.url.trim()).length)],
-                  ['Samples', String(form.sampleWorks.filter(sample => sample.title.trim() || sample.imageUrl.trim() || sample.storagePath || sample.localFileId || sample.notes.trim()).length)],
-                  ['Statement', form.artistStatement.trim() ? 'Added' : 'Optional'],
+                  ['Links', String((isHttpsUrl(form.portfolioUrl) ? 1 : 0) + validProfileLinks.length)],
+                  ['Samples', String(completeSamples.length)],
+                  ['Statement', form.artistStatement.trim().length >= 40 ? 'Ready' : 'Needs detail'],
                 ].map(([label, value]) => (
                   <div key={label} className="hair-b pb-3 flex justify-between gap-4 last:border-0">
                     <span className="text-[var(--muted)]">{label}</span>
@@ -370,6 +386,11 @@ export const SellerApplicationForm = ({ profile, application, onSubmit, onUpload
                   Ready for admin review
                 </div>
               )}
+              {!formValid && (
+                <div className="mt-5 hair-all bg-[var(--accent-soft)] text-[var(--accent)] p-3 text-[12px] leading-relaxed">
+                  {missingRequirements[0]}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -381,8 +402,8 @@ export const SellerApplicationForm = ({ profile, application, onSubmit, onUpload
         <button
           type="button"
           onClick={(event) => submit(event, 'draft')}
-          disabled={saving || !form.studioName.trim()}
-          className={`swiss-btn ghost justify-center ${saving || !form.studioName.trim() ? 'opacity-60 cursor-not-allowed' : ''}`}
+          disabled={saving || !canSaveDraft}
+          className={`swiss-btn ghost justify-center ${saving || !canSaveDraft ? 'opacity-60 cursor-not-allowed' : ''}`}
         >
           Save draft
         </button>

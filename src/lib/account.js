@@ -25,13 +25,13 @@ export async function uploadAvatar(file) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user?.id) throw new Error('Authentication is required.');
 
-  const path = `${user.id}/${Date.now()}.${extensionFor(file)}`;
+  const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extensionFor(file)}`;
   const { error } = await supabase.storage
     .from(AVATAR_BUCKET)
     .upload(path, file, {
       cacheControl: '3600',
       contentType: file.type || 'image/jpeg',
-      upsert: true,
+      upsert: false,
     });
 
   if (error) throw new Error(error.message || 'Avatar upload failed.');

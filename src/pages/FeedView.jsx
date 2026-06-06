@@ -351,6 +351,11 @@ export const FeedView = ({
                     placeholder={canPostInFeed ? 'Post a note, share a process shot, announce a drop...' : 'Use a verified seller studio to post to the feed.'}
                   />
                 </div>
+                {!canPostInFeed && (
+                  <p className="text-[12px] text-[var(--muted)] mt-3 leading-relaxed">
+                    Buyers can comment, save, follow, and report. Publishing feed posts is reserved for verified seller studios.
+                  </p>
+                )}
                 <div className="flex justify-between items-center mt-3 hair-t pt-3 gap-3 flex-wrap">
                   <div className="flex gap-3 label items-center flex-wrap">
                     {canPostInFeed ? (
@@ -642,7 +647,7 @@ export const FeedView = ({
                 value={alertEmail}
                 onChange={event => setAlertEmail(event.target.value)}
                 onKeyDown={event => { if (event.key === 'Enter') subscribeDropAlerts(); }}
-                className="swiss-input mt-5 text-[var(--bg)] border-[#3a3a36]"
+                className="swiss-input mt-5 bg-[#171713] text-[#EFEDE5] border-[#4B4941] placeholder:text-[#9C988A]"
                 placeholder="your@email"
                 aria-label="Email for drop alerts"
               />

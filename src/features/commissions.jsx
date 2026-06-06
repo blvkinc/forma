@@ -185,7 +185,7 @@ export const CommissionThreadModal = ({ booking, activeThread, user, onClose, on
   };
 
   return (
-    <div className="fixed inset-0 z-[260] bg-[rgba(14,14,12,0.42)] backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[300] bg-[rgba(14,14,12,0.52)] backdrop-blur-sm flex items-center justify-center p-4">
       <div className="hair-all bg-[var(--card)] w-full max-w-[760px] max-h-[92vh] overflow-hidden shadow-[0_24px_80px_rgba(14,14,12,0.22)] flex flex-col">
         <div className="p-6 hair-b flex items-start justify-between gap-4">
           <div>

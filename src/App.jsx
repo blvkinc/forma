@@ -301,6 +301,8 @@ export default function App() {
   };
 
   const openReport = (target) => {
+    setThreadBooking(null);
+    commissionState.closeThread();
     setReportTarget(target);
   };
 
@@ -471,7 +473,7 @@ export default function App() {
 
   // --- Role-gated dashboard access ---
   const canViewDashboard = isBuyerRole(role);
-  const canViewStudio = isSellerRole(role);
+  const canViewStudio = isSellerRole(role) || isBuyerRole(role);
   const canViewAdmin = isAdminRole(role);
 
   return (

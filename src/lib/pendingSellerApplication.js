@@ -104,7 +104,7 @@ function sanitizeSample(sample) {
   const storagePath = cleanText(sample?.storagePath || sample?.imagePath, 700);
   return {
     title: cleanText(sample?.title, 140),
-    imageUrl: localFileId || storagePath ? '' : cleanText(sample?.imageUrl, 500),
+    imageUrl: localFileId || storagePath ? '' : cleanHttpsUrl(sample?.imageUrl),
     storagePath,
     localFileId,
     notes: cleanText(sample?.notes, 500),
@@ -121,7 +121,7 @@ function sanitizePayload(payload) {
     city: cleanText(payload?.city, 120),
     bio: cleanText(payload?.bio, 900),
     artistStatement: cleanText(payload?.artistStatement, 1200),
-    portfolioUrl: cleanText(payload?.portfolioUrl, 500),
+    portfolioUrl: cleanHttpsUrl(payload?.portfolioUrl),
     profileLinks: profileLinks
       .map(link => ({
         label: cleanText(link?.label, 80),

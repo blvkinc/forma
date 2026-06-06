@@ -14,7 +14,7 @@ export const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist
   const featuredArtist = featured ? artistById(featured.artist) : null;
   const openCommissionSlots = COMMISSIONS.reduce((s, c) => s + Math.max(0, c.slots - c.taken), 0);
   const liveVolume = ARTWORKS.reduce((s, w) => s + Number(w.currentBid || 0), 0);
-  const upcomingDrops = (liveWorks.length ? liveWorks : ARTWORKS).slice(0, 3);
+  const auctionSchedule = liveWorks.slice(0, 3);
   return (
     <main className="fade-in">
       {/* HERO */}
@@ -68,10 +68,10 @@ export const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist
 
       {/* FEATURED */}
       <section className="max-w-[1440px] mx-auto px-8 py-16">
-        <div className="flex items-baseline justify-between mb-8 hair-b pb-4">
-          <div className="flex items-baseline gap-4">
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-8 hair-b pb-4">
+          <div>
             <span className="label">№ 02 — Featured</span>
-            <h2 className="display text-[42px]">Editor's pick, this week</h2>
+            <h2 className="display text-[42px] leading-tight">Editor's pick, this week</h2>
           </div>
           <button onClick={goExplore} className="mono text-[11px] uppercase tracking-[0.12em] underline-hover cursor-pointer">View all selections</button>
         </div>
@@ -108,13 +108,18 @@ export const HomeView = ({ goToArtwork, goToArtist, likes, toggleLike, watchlist
               <ArtCard key={w.id} work={w} onClick={() => goToArtwork(w.id)} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} layout="row"/>
             ))}
             <div className="hair-all p-5 bg-[var(--card)]">
-              <div className="label">Closing soon</div>
+              <div className="label">Auction schedule</div>
               <div className="mt-3 space-y-2">
-                {upcomingDrops.map(w => {
+                {auctionSchedule.length === 0 && (
+                  <div className="text-[13px] text-[var(--muted)] leading-relaxed">
+                    No live auction timers right now. Explore featured work while the next drop is prepared.
+                  </div>
+                )}
+                {auctionSchedule.map(w => {
                   const a = artistById(w.artist);
                   return (
                     <button key={w.id} onClick={() => goToArtwork(w.id)} className="w-full flex justify-between text-[13px] text-left hover:bg-[var(--bg-2)] py-1 -mx-1 px-1 transition-colors">
-                      <span className="mono text-[11px] text-[var(--accent)] tracking-wider">{w.endsAt > 0 ? formatTime(w.endsAt) : 'CLOSED'}</span>
+                      <span className="mono text-[11px] text-[var(--accent)] tracking-wider">{formatTime(w.endsAt)}</span>
                       <div className="text-right">
                         <div>{w.title}</div>
                         <div className="mono text-[11px] text-[var(--muted)]">{a?.handle}</div>

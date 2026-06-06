@@ -270,3 +270,55 @@ test('seller onboarding uses private review media before admin approval', () => 
   assert.match(pending, /submitSellerApplication\(profileId/);
   assert.match(pending, /uploadSellerApplicationImage\(record\.file\)/);
 });
+
+test('profile handles, avatar uploads, and seller upgrades are hardened', () => {
+  const sql = read('supabase/migrations/049_profile_handle_avatar_and_seller_application_hardening.sql');
+  const profile = read('src/pages/ProfileView.jsx');
+  const account = read('src/lib/account.js');
+  const app = read('src/App.jsx');
+  const menu = read('src/components/shared.jsx');
+
+  assert.match(sql, /base_handle := private\.slugify_handle/);
+  assert.match(sql, /candidate_handle := left\(base_handle, 34\) \|\| '-' \|\| suffix::text/);
+  assert.match(sql, /new\.handle := old\.handle/);
+  assert.match(sql, /name like \(select auth\.uid\(\)\)::text \|\| '\/%'/);
+  assert.match(sql, /bucket_id = 'avatars'/);
+  assert.match(sql, /p\.role in \('buyer', 'artist'\)/);
+  assert.match(sql, /p\.verified = false/);
+  assert.match(sql, /Seller applications need process notes or proof of work of at least 40 characters/);
+
+  assert.match(profile, /Handle \(auto\)/);
+  assert.match(profile, /readOnly/);
+  assert.doesNotMatch(profile, /handle: form\.handle/);
+  assert.match(account, /upsert: false/);
+  assert.match(app, /const canViewStudio = isSellerRole\(role\) \|\| isBuyerRole\(role\)/);
+  assert.match(menu, /Apply to sell/);
+});
+
+test('seller application validation is enforced in the client before submission', () => {
+  const seller = read('src/features/seller.jsx');
+  const onboarding = read('src/lib/onboarding.js');
+  const pending = read('src/lib/pendingSellerApplication.js');
+  const auth = read('src/pages/AuthPage.jsx');
+
+  assert.match(seller, /artistStatement\.trim\(\)\.length >= 40/);
+  assert.match(seller, /processNotes\.trim\(\)\.length >= 40/);
+  assert.match(seller, /Add an HTTPS portfolio\/profile link or a completed sample/);
+  assert.match(onboarding, /cleanHttpsUrl\(payload\.portfolioUrl\)/);
+  assert.match(onboarding, /completeSamples/);
+  assert.match(pending, /portfolioUrl: cleanHttpsUrl\(payload\?\.portfolioUrl\)/);
+  assert.match(auth, /This email already has a FORMA account/);
+});
+
+test('feed and webhook UX communicates role boundaries', () => {
+  const feed = read('src/pages/FeedView.jsx');
+  const profile = read('src/pages/ProfileView.jsx');
+  const app = read('src/App.jsx');
+
+  assert.match(app, /canPost=\{isSellerRole\(role\) && profile\?\.verified === true && !!ownedArtist\}/);
+  assert.match(feed, /Buyers can comment, save, follow, and report/);
+  assert.match(feed, /Publishing feed posts is reserved for verified seller studios/);
+  assert.match(feed, /bg-\[#171713\] text-\[#EFEDE5\]/);
+  assert.match(profile, /Most buyers do not need them/);
+  assert.match(profile, /setShowWebhookTools/);
+});

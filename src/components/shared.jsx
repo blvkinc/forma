@@ -25,12 +25,12 @@ export const Logo = ({ onClick }) => (
 export const Ticker = () => (
   <div className="ticker-strip hair-b hair-t overflow-hidden py-2">
     <div className="marquee mono text-[11px] uppercase tracking-[0.15em]">
-      {[...Array(2)].flatMap((_,j) => [
-        <span key={`${j}-1`}>● Live now — Channel_Err_03 by rfm.works — 1H 06M left</span>,
-        <span key={`${j}-2`}>○ New commissions open — kestner.studio — 3 slots</span>,
-        <span key={`${j}-3`}>● 22 bids placed in the last hour</span>,
-        <span key={`${j}-4`}>○ Index 240 active auctions across 6 categories</span>,
-        <span key={`${j}-5`}>● Concrete Light, Study II — 1240 USD — Mira Tanaka</span>,
+      {[...Array(2)].flatMap((_, j) => [
+        <span key={`${j}-1`}>LIVE NOW - Channel_Err_03 by rfm.works - 1H 06M left</span>,
+        <span key={`${j}-2`}>NEW COMMISSIONS OPEN - kestner.studio - 3 slots</span>,
+        <span key={`${j}-3`}>22 bids placed in the last hour</span>,
+        <span key={`${j}-4`}>Index 240 active auctions across 6 categories</span>,
+        <span key={`${j}-5`}>Concrete Light, Study II - 1240 USD - Mira Tanaka</span>,
       ])}
     </div>
   </div>
@@ -140,6 +140,12 @@ export const UserMenu = ({ profile, role, setView, onSignOut }) => {
             {isBuyerRole(role) && (
               <a href="#dashboard" onClick={() => goTo('dashboard')} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-[var(--bg-2)] transition-colors" role="menuitem">
                 <span className="flex items-center gap-2 text-[13px]"><ShoppingBag size={14}/> Buyer dashboard</span>
+                <ArrowRight size={12}/>
+              </a>
+            )}
+            {isBuyerRole(role) && (
+              <a href="#studio" onClick={() => goTo('studio')} className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-[var(--bg-2)] transition-colors" role="menuitem">
+                <span className="flex items-center gap-2 text-[13px]"><ImageIcon size={14}/> Apply to sell</span>
                 <ArrowRight size={12}/>
               </a>
             )}

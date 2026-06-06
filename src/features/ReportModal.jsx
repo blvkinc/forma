@@ -29,7 +29,7 @@ export const ReportModal = ({ target, onClose, onSubmit }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[260] bg-[rgba(14,14,12,0.42)] backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[320] bg-[rgba(14,14,12,0.56)] backdrop-blur-sm flex items-center justify-center p-4">
       <form onSubmit={submit} className="hair-all bg-[var(--card)] w-full max-w-[620px] max-h-[92vh] overflow-y-auto shadow-[0_24px_80px_rgba(14,14,12,0.22)]">
         <div className="p-6 hair-b flex items-start justify-between gap-4">
           <div>

@@ -20,6 +20,14 @@ export default function AuthPage() {
   const [sellerApplicationQueued, setSellerApplicationQueued] = useState(false);
   const [sellerDraftSaved, setSellerDraftSaved] = useState(false);
 
+  const sellerSignupErrorMessage = (err) => {
+    const message = err?.message || 'Seller signup failed.';
+    if (/already|registered|rate limit|too many|email rate/i.test(message)) {
+      return 'This email already has a FORMA account or is temporarily rate-limited. Sign in with that buyer account and choose Apply to sell from the profile menu or Studio.';
+    }
+    return message;
+  };
+
   const reset = () => {
     setError('');
     setConfirmationSent(false);
@@ -115,7 +123,7 @@ export default function AuthPage() {
       return true;
     } catch (err) {
       setSellerApplicationQueued(false);
-      throw err;
+      throw new Error(sellerSignupErrorMessage(err));
     } finally {
       setLoading(false);
     }

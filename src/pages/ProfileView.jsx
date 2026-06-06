@@ -2,7 +2,7 @@
 // FORMA — Profile / account settings
 // ============================================================
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, Check, Lock, Mail, Trash2, AlertCircle, UserPlus, Heart, Bookmark, Webhook, Plus, Pause, Play } from 'lucide-react';
+import { ArrowRight, Check, Lock, Mail, Trash2, AlertCircle, UserPlus, Heart, Bookmark, Webhook, Plus, Pause, Play, ChevronDown } from 'lucide-react';
 import { roleLabel, isBuyerRole, isSellerRole, isAdminRole, fmt, relativeTime } from '../lib/ui';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadAvatar } from '../lib/account';
@@ -14,10 +14,19 @@ import {
   updateWebhookEndpoint,
 } from '../lib/webhooks';
 
+function slugifyHandle(value) {
+  return String(value || 'forma-user')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'forma-user';
+}
+
 export const ProfileView = ({ user, profile, role, updateProfile, marketplace, setView, goToArtwork, goToArtist, toggleFollow }) => {
   const [form, setForm] = useState({
     display_name: profile?.display_name || '',
-    handle: profile?.handle || '',
+    handle: profile?.handle || slugifyHandle(profile?.display_name || user?.email),
     city: profile?.city || '',
     bio: profile?.bio || '',
   });
@@ -36,6 +45,7 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
   const [webhookForm, setWebhookForm] = useState({ url: '', events: ['notification.created'] });
   const [webhookBusy, setWebhookBusy] = useState('');
   const [webhookStatus, setWebhookStatus] = useState(null);
+  const [showWebhookTools, setShowWebhookTools] = useState(false);
 
   const handleAvatar = async (file) => {
     setAvatarBusy(true);
@@ -87,11 +97,11 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
   useEffect(() => {
     setForm({
       display_name: profile?.display_name || '',
-      handle: profile?.handle || '',
+      handle: profile?.handle || slugifyHandle(profile?.display_name || user?.email),
       city: profile?.city || '',
       bio: profile?.bio || '',
     });
-  }, [profile]);
+  }, [profile, user?.email]);
 
   useEffect(() => {
     let alive = true;
@@ -109,6 +119,10 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
     return () => { alive = false; };
   }, [user?.id]);
 
+  useEffect(() => {
+    if (webhookEndpoints.length > 0) setShowWebhookTools(true);
+  }, [webhookEndpoints.length]);
+
   const updateField = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setStatus(null);
@@ -122,7 +136,6 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
     try {
       await updateProfile({
         display_name: form.display_name,
-        handle: form.handle,
         city: form.city,
         bio: form.bio,
       });
@@ -206,6 +219,7 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
 
   const shortcuts = [
     { show: isBuyerRole(role), target: 'dashboard', label: 'Buyer dashboard', desc: 'Watchlist, bids, and collecting activity.' },
+    { show: isBuyerRole(role), target: 'studio', label: 'Apply to sell', desc: 'Use this same account for seller review.' },
     { show: isSellerRole(role), target: 'studio', label: 'Seller studio', desc: 'Auctions, commissions, and payout summary.' },
     { show: isAdminRole(role), target: 'admin', label: 'Admin console', desc: 'Moderation, finance, audit, and user queues.' },
   ].filter(item => item.show);
@@ -296,15 +310,19 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
                 />
               </div>
               <div>
-                <label htmlFor="profile-handle" className="label mb-2 block">Handle</label>
+                <label htmlFor="profile-handle" className="label mb-2 block">Handle (auto)</label>
                 <input
                   id="profile-handle"
-                  className="swiss-input"
+                  className="swiss-input bg-[var(--bg-2)] text-[var(--muted)]"
                   value={form.handle}
-                  onChange={event => updateField('handle', event.target.value)}
-                  placeholder="studio.handle"
+                  readOnly
+                  aria-readonly="true"
+                  placeholder="auto-generated"
                   maxLength={40}
                 />
+                <p className="text-[11px] text-[var(--muted)] mt-2 leading-relaxed">
+                  Handles are generated from signup or seller onboarding. Only the display name can be edited here.
+                </p>
               </div>
               <div>
                 <label htmlFor="profile-city" className="label mb-2 block">City</label>
@@ -431,9 +449,15 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
                 <div className="label flex items-center gap-2"><Webhook size={12}/> Webhooks</div>
                 <h2 className="display text-[32px] mt-2">Endpoint delivery.</h2>
               </div>
-              <div className="mono text-[10px] uppercase tracking-[0.1em] text-[var(--muted)]">
+              <button
+                type="button"
+                onClick={() => setShowWebhookTools(value => !value)}
+                className="swiss-btn ghost"
+                aria-expanded={showWebhookTools}
+              >
                 {webhookEndpoints.length} endpoints
-              </div>
+                <ChevronDown size={12} className={`transition-transform ${showWebhookTools ? 'rotate-180' : ''}`}/>
+              </button>
             </div>
 
             {webhookStatus && (
@@ -442,49 +466,55 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
               </div>
             )}
 
-            <form onSubmit={handleCreateWebhook} className="grid grid-cols-12 gap-4 items-end">
-              <div className="col-span-7">
-                <label htmlFor="webhook-url" className="label mb-2 block">Endpoint URL</label>
-                <input
-                  id="webhook-url"
-                  type="url"
-                  className="swiss-input"
-                  value={webhookForm.url}
-                  onChange={event => {
-                    setWebhookForm(prev => ({ ...prev, url: event.target.value }));
-                    setWebhookStatus(null);
-                  }}
-                  placeholder="https://api.studio.com/forma"
-                  autoComplete="url"
-                  required
-                />
-              </div>
-              <div className="col-span-3">
-                <div className="label mb-2">Events</div>
-                <div className="flex flex-wrap gap-2">
-                  {WEBHOOK_EVENT_OPTIONS.map(option => {
-                    const active = webhookForm.events.includes(option.value);
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => toggleWebhookEvent(option.value)}
-                        className={`hair-all px-2.5 py-2 mono text-[9px] uppercase tracking-[0.08em] transition-colors ${active ? 'bg-[var(--ink)] text-[var(--bg)]' : 'bg-transparent text-[var(--ink)] hover:bg-[var(--bg-2)]'}`}
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="col-span-2 flex justify-end">
-                <button type="submit" disabled={webhookBusy === 'create'} className={`swiss-btn accent ${webhookBusy === 'create' ? 'opacity-60 cursor-wait' : ''}`}>
-                  {webhookBusy === 'create' ? 'Saving...' : 'Add'} <Plus size={12}/>
-                </button>
-              </div>
-            </form>
+            <div className="hair-all bg-[var(--bg-2)] p-4 text-[13px] text-[var(--muted)] leading-relaxed">
+              Webhooks are an advanced integration for external dashboards or automations. Most buyers do not need them; collectors can use in-app notifications and drop alerts instead.
+            </div>
 
-            <div className="space-y-3 mt-6">
+            {showWebhookTools && (
+              <>
+                <form onSubmit={handleCreateWebhook} className="grid grid-cols-12 gap-4 items-end mt-5">
+                  <div className="col-span-7">
+                    <label htmlFor="webhook-url" className="label mb-2 block">Endpoint URL</label>
+                    <input
+                      id="webhook-url"
+                      type="url"
+                      className="swiss-input"
+                      value={webhookForm.url}
+                      onChange={event => {
+                        setWebhookForm(prev => ({ ...prev, url: event.target.value }));
+                        setWebhookStatus(null);
+                      }}
+                      placeholder="https://api.studio.com/forma"
+                      autoComplete="url"
+                      required
+                    />
+                  </div>
+                  <div className="col-span-3">
+                    <div className="label mb-2">Events</div>
+                    <div className="flex flex-wrap gap-2">
+                      {WEBHOOK_EVENT_OPTIONS.map(option => {
+                        const active = webhookForm.events.includes(option.value);
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => toggleWebhookEvent(option.value)}
+                            className={`hair-all px-2.5 py-2 mono text-[9px] uppercase tracking-[0.08em] transition-colors ${active ? 'bg-[var(--ink)] text-[var(--bg)]' : 'bg-transparent text-[var(--ink)] hover:bg-[var(--bg-2)]'}`}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="col-span-2 flex justify-end">
+                    <button type="submit" disabled={webhookBusy === 'create'} className={`swiss-btn accent ${webhookBusy === 'create' ? 'opacity-60 cursor-wait' : ''}`}>
+                      {webhookBusy === 'create' ? 'Saving...' : 'Add'} <Plus size={12}/>
+                    </button>
+                  </div>
+                </form>
+
+                <div className="space-y-3 mt-6">
               {webhookEndpoints.map(endpoint => (
                 <div key={endpoint.id} className="hair-all p-4 grid grid-cols-12 gap-4 items-center">
                   <div className="col-span-6 min-w-0">
@@ -535,7 +565,9 @@ export const ProfileView = ({ user, profile, role, updateProfile, marketplace, s
                   No webhook endpoints saved.
                 </div>
               )}
-            </div>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-6">
