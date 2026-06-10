@@ -322,3 +322,28 @@ test('feed and webhook UX communicates role boundaries', () => {
   assert.match(profile, /Most buyers do not need them/);
   assert.match(profile, /setShowWebhookTools/);
 });
+
+test('seller approval cannot be bypassed through generic verification or dev APIs', () => {
+  const sql = read('supabase/migrations/050_seller_approval_workflow_enforcement.sql');
+  const studio = read('src/pages/StudioDashboard.jsx');
+  const app = read('src/App.jsx');
+  const admin = read('src/lib/admin.js');
+  const onboarding = read('src/lib/onboarding.js');
+  const seller = read('src/lib/seller.js');
+  const vite = read('vite.config.js');
+
+  assert.match(sql, /guard_artist_verification_requires_approval/);
+  assert.match(sql, /Seller accounts must be approved from Seller review before verification/);
+  assert.match(sql, /admin_review_seller_application/);
+  assert.match(sql, /p_decision not in \('approved', 'rejected'\)/);
+  assert.match(sql, /set verified = false/);
+  assert.match(sql, /set verified = false,\s*\n\s*suspended = true/s);
+
+  assert.match(app, /role=\{role\}/);
+  assert.match(studio, /isSellerRole\(role\) && profile\?\.verified === true/);
+  assert.match(admin, /Seller accounts must be approved from Seller review/);
+  assert.match(onboarding, /supabase\.rpc\('admin_review_seller_application'/);
+  assert.match(seller, /assertVerifiedSeller/);
+  assert.match(seller, /Admin approval is required before using seller studio tools/);
+  assert.match(vite, /data\?\.role !== 'artist' \|\| data\?\.verified !== true/);
+});

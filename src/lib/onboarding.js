@@ -230,14 +230,31 @@ export async function fetchSellerApplications() {
 
 export async function reviewSellerApplication(applicationId, decision, reviewNote = '') {
   const status = decision === 'approved' ? 'approved' : 'rejected';
+  const { error: rpcError } = await supabase.rpc('admin_review_seller_application', {
+    p_application_id: applicationId,
+    p_decision: status,
+    p_review_note: cleanText(reviewNote, 900) || null,
+  });
+
+  if (rpcError) {
+    if (!/admin_review_seller_application|schema cache|function .* does not exist/i.test(rpcError.message || '')) {
+      throw rpcError;
+    }
+
+    const { error: fallbackError } = await supabase
+      .from('seller_applications')
+      .update({
+        status,
+        review_note: cleanText(reviewNote, 900) || null,
+      })
+      .eq('id', applicationId);
+    if (fallbackError) throw fallbackError;
+  }
+
   const { data, error } = await supabase
     .from('seller_applications')
-    .update({
-      status,
-      review_note: cleanText(reviewNote, 900) || null,
-    })
-    .eq('id', applicationId)
     .select(APPLICATION_SELECT)
+    .eq('id', applicationId)
     .single();
   if (error) throw error;
   return hydrateApplicationMedia(transformSellerApplication(data));

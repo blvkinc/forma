@@ -125,6 +125,7 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, goToFeed, trustState, 
     try {
       await admin.decideSellerApplication(application.id, decision, reviewNotes[application.id] || '');
       setReviewNotes(prev => ({ ...prev, [application.id]: '' }));
+      await admin.refresh();
     } catch (err) {
       setActionError(err.message || 'Seller review failed.');
     }
@@ -459,13 +460,13 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, goToFeed, trustState, 
                 </span>
               </div>
               <div className="col-span-2 text-right">
-                {u.role === 'artist' && !u.verified ? (
+                {u.role === 'artist' ? (
                   <button
                     onClick={() => setTab('seller-review')}
-                    disabled={!sellerApplicationByProfileId.has(u.id)}
-                    className={`swiss-btn ghost ${!sellerApplicationByProfileId.has(u.id) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    disabled={!sellerApplicationByProfileId.has(u.id) || u.verified}
+                    className={`swiss-btn ghost ${!sellerApplicationByProfileId.has(u.id) || u.verified ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    {sellerApplicationByProfileId.has(u.id) ? 'Review app' : 'Awaiting app'}
+                    {u.verified ? 'Seller approved' : sellerApplicationByProfileId.has(u.id) ? 'Review app' : 'Awaiting app'}
                   </button>
                 ) : (
                   <button

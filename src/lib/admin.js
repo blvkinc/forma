@@ -36,6 +36,16 @@ export async function fetchKycQueue() {
 }
 
 export async function setProfileVerified(profileId, verified) {
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('id, role, verified')
+    .eq('id', profileId)
+    .single();
+  if (profileError) throw profileError;
+  if (verified && profile?.role === 'artist') {
+    throw new Error('Seller accounts must be approved from Seller review, not the generic KYC action.');
+  }
+
   const { data, error } = await supabase
     .from('profiles')
     .update({ verified, updated_at: new Date().toISOString() })

@@ -112,13 +112,13 @@ function formaCatalogueApi() {
       const sellerProfile = async (client, user) => {
         const { data, error } = await client
           .from('profiles')
-          .select('id, role, display_name, handle, city, bio')
+          .select('id, role, verified, display_name, handle, city, bio')
           .eq('id', user.id)
           .single();
 
         if (error) throw error;
-        if (data?.role !== 'artist') {
-          const forbidden = new Error('A seller account is required for this action.');
+        if (data?.role !== 'artist' || data?.verified !== true) {
+          const forbidden = new Error('Admin approval is required before using seller studio tools.');
           forbidden.statusCode = 403;
           throw forbidden;
         }

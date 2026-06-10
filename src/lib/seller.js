@@ -131,6 +131,22 @@ async function existingArtistFor(userId) {
   return data;
 }
 
+async function assertVerifiedSeller(userId) {
+  const { data, error } = await withSellerTimeout(
+    supabase
+      .from('profiles')
+      .select('id, role, verified')
+      .eq('id', userId)
+      .single(),
+    'Seller profile check'
+  );
+  if (error) throw new Error(sellerErrorMessage(error));
+  if (data?.role !== 'artist' || data?.verified !== true) {
+    throw new Error('Admin approval is required before using seller studio tools.');
+  }
+  return data;
+}
+
 export async function uploadArtworkImage(file) {
   if (!file) return '';
   if (!String(file.type || '').startsWith('image/')) {
@@ -145,6 +161,7 @@ export async function uploadArtworkImage(file) {
     'Authentication check'
   );
   if (!user?.id) throw new Error('Authentication is required.');
+  await assertVerifiedSeller(user.id);
 
   const path = `${user.id}/${Date.now()}-${makeId('image')}.${imageExtension(file)}`;
   const { error } = await withSellerTimeout(
@@ -176,6 +193,7 @@ export async function createSellerArtist(payload) {
     'Authentication check'
   );
   if (!user?.id) throw new Error('Authentication is required.');
+  await assertVerifiedSeller(user.id);
 
   const existing = await existingArtistFor(user.id);
   const handle = slugify(payload.handle || payload.name || user.email);
@@ -216,6 +234,7 @@ export async function createSellerArtwork(payload) {
     'Authentication check'
   );
   if (!user?.id) throw new Error('Authentication is required.');
+  await assertVerifiedSeller(user.id);
   const artist = await ownedArtistFor(user.id);
   const durationHours = Math.min(168, Math.max(24, Number(payload.durationHours || 120)));
 
@@ -263,6 +282,7 @@ export async function createSellerFeedPost(payload) {
     'Authentication check'
   );
   if (!user?.id) throw new Error('Authentication is required.');
+  await assertVerifiedSeller(user.id);
   const artist = await ownedArtistFor(user.id);
 
   const body = String(payload.body || '').trim();
@@ -298,6 +318,13 @@ export async function updateSellerFeedPost(postId, payload) {
   });
   if (apiData) return apiData;
 
+  const { data: { user } } = await withSellerTimeout(
+    supabase.auth.getUser(),
+    'Authentication check'
+  );
+  if (!user?.id) throw new Error('Authentication is required.');
+  await assertVerifiedSeller(user.id);
+
   const body = String(payload.body || '').trim();
   if (body.length < 2) throw new Error('Write something before saving.');
   const updates = { body: body.slice(0, 1200) };
@@ -323,6 +350,13 @@ export async function deleteSellerFeedPost(postId) {
   });
   if (apiData) return apiData;
 
+  const { data: { user } } = await withSellerTimeout(
+    supabase.auth.getUser(),
+    'Authentication check'
+  );
+  if (!user?.id) throw new Error('Authentication is required.');
+  await assertVerifiedSeller(user.id);
+
   const { error } = await withSellerTimeout(
     supabase
       .from('feed_posts')
@@ -347,6 +381,7 @@ export async function createSellerCommission(payload) {
     'Authentication check'
   );
   if (!user?.id) throw new Error('Authentication is required.');
+  await assertVerifiedSeller(user.id);
   const artist = await ownedArtistFor(user.id);
 
   const { data, error } = await withSellerTimeout(

@@ -5,15 +5,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User, Plus, ArrowRight, ChevronRight } from 'lucide-react';
 import { ArtVisual } from '../components/shared';
 import { SellerApplicationForm, SellerStudioForm, SellerArtworkForm, SellerCommissionForm } from '../features/seller';
-import { fmt, formatTime, relativeTime } from '../lib/ui';
+import { fmt, formatTime, relativeTime, isSellerRole } from '../lib/ui';
 import { ARTWORKS, COMMISSIONS } from '../lib/catalogue';
 import { fetchMySellerApplication, submitSellerApplication, uploadSellerApplicationImage } from '../lib/onboarding';
 import { loadPendingSellerApplication, submitPendingSellerApplication } from '../lib/pendingSellerApplication';
 import { fetchArtistAuctionSettlements } from '../lib/auctions';
 import { artistPayoutFromAuction } from '../lib/domain';
 
-export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, ownedArtist, commissionState, onOpenCommissionThread, onSubmitStudio, onSubmitArtwork, onUploadArtworkImage, onSubmitCommission }) => {
-  const [tab, setTab] = useState(() => ownedArtist && profile?.verified ? 'overview' : 'onboarding');
+export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, role, ownedArtist, commissionState, onOpenCommissionThread, onSubmitStudio, onSubmitArtwork, onUploadArtworkImage, onSubmitCommission }) => {
+  const [tab, setTab] = useState(() => ownedArtist && isSellerRole(role) && profile?.verified ? 'overview' : 'onboarding');
   const [payoutsPaused, setPayoutsPaused] = useState(false);
   const [payoutNotice, setPayoutNotice] = useState('');
   const [application, setApplication] = useState(null);
@@ -25,7 +25,7 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, owned
   const [sellerSettlements, setSellerSettlements] = useState([]);
   const [settlementLoading, setSettlementLoading] = useState(false);
   const [settlementError, setSettlementError] = useState('');
-  const sellerVerified = profile?.verified === true;
+  const sellerVerified = isSellerRole(role) && profile?.verified === true;
   const canManageStudio = sellerVerified && !!ownedArtist;
   const canCreateStudio = sellerVerified;
   const ownedWorks = canManageStudio ? ARTWORKS.filter(w => w.artist === ownedArtist.id) : [];
