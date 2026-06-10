@@ -5,3 +5,4 @@ dev-server.err
 .env
 .env.*
 docs/*
+*.png
