@@ -28,35 +28,55 @@ export function useAdmin() {
   const [sellerApplications, setSellerApplications] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  // Per-queue failures, so one broken table/migration never blanks the
+  // whole console — each section reports its own status independently.
+  const [sectionErrors, setSectionErrors] = useState({});
 
   const refresh = useCallback(async () => {
     if (!isAdmin) return;
     setLoading(true);
     setError(null);
-    try {
-      const [k, d, a, p, m, s, o, sellerApps] = await Promise.all([
-        fetchKycQueue(),
-        fetchDisputes(),
-        fetchAuditLog(),
-        fetchPayouts(),
-        fetchModerationTargets(),
-        fetchAuctionSettlements(),
-        fetchDeliveryOutbox(),
-        fetchSellerApplications(),
-      ]);
-      setKyc(k);
-      setDisputes(d);
-      setAudit(a);
-      setPayouts(p);
-      setModeration(m);
-      setAuctionSettlements(s);
-      setDeliveryOutbox(o);
-      setSellerApplications(sellerApps);
-    } catch (err) {
-      setError(err.message || 'Failed to load admin data.');
-    } finally {
-      setLoading(false);
+
+    // Each queue loads independently: a failure in one (e.g. a table or
+    // function from an un-applied migration) is recorded against that
+    // section instead of rejecting the whole load.
+    const sections = [
+      ['seller applications', fetchSellerApplications, setSellerApplications],
+      ['user verification', fetchKycQueue, setKyc],
+      ['disputes', fetchDisputes, setDisputes],
+      ['moderation', fetchModerationTargets, setModeration],
+      ['auction settlements', fetchAuctionSettlements, setAuctionSettlements],
+      ['delivery outbox', fetchDeliveryOutbox, setDeliveryOutbox],
+      ['payouts', fetchPayouts, setPayouts],
+      ['audit log', fetchAuditLog, setAudit],
+    ];
+
+    const settled = await Promise.allSettled(sections.map(([, fetcher]) => fetcher()));
+    const nextErrors = {};
+    settled.forEach((result, index) => {
+      const [label, , setter] = sections[index];
+      if (result.status === 'fulfilled') {
+        setter(result.value);
+      } else {
+        nextErrors[label] = result.reason?.message || `Failed to load ${label}.`;
+        console.error(`Admin queue "${label}" failed:`, result.reason);
+      }
+    });
+
+    setSectionErrors(nextErrors);
+    const failedLabels = Object.keys(nextErrors);
+    if (failedLabels.length) {
+      const looksLikeMigration = Object.values(nextErrors).some(message =>
+        /does not exist|schema cache|could not find|PGRST(202|204)|relation .* does not/i.test(message || '')
+      );
+      setError(
+        `${failedLabels.length} of ${sections.length} admin queues failed to load (${failedLabels.join(', ')}). `
+        + (looksLikeMigration
+          ? 'This usually means the latest Supabase migrations have not been applied to this database.'
+          : 'The other queues below are still live.')
+      );
     }
+    setLoading(false);
   }, [isAdmin]);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -148,6 +168,7 @@ export function useAdmin() {
     sellerApplications,
     loading,
     error,
+    sectionErrors,
     refresh,
     verifyProfile,
     decideDispute,

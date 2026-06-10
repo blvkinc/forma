@@ -392,3 +392,24 @@ test('guests browse public views only and all writes require sign-in', () => {
   assert.match(app, /if \(!requireSignedIn\('Sign in with a buyer account to book commissions\.'\)\) return/);
   assert.match(app, /if \(!requireSignedIn\('Sign in to report content\.'\)\) return/);
 });
+
+test('admin console loads each queue independently and flags pending migrations', () => {
+  const hook = read('src/hooks/useAdmin.js');
+  const adminLib = read('src/lib/admin.js');
+  const dashboard = read('src/pages/AdminDashboard.jsx');
+
+  // One failing queue must never blank the whole console: queues load via
+  // allSettled and failures are tracked per-section.
+  assert.match(hook, /Promise\.allSettled/);
+  assert.match(hook, /setSectionErrors/);
+  assert.match(hook, /sectionErrors,/);
+  assert.doesNotMatch(hook, /const \[k, d, a, p, m, s, o, sellerApps\] = await Promise\.all/);
+
+  // The console probes for the migration-050 approval RPC and warns when the
+  // database is behind, instead of silently failing to enforce approval.
+  assert.match(adminLib, /export async function checkSellerApprovalReadiness/);
+  assert.match(adminLib, /admin_review_seller_application/);
+  assert.match(dashboard, /checkSellerApprovalReadiness/);
+  assert.match(dashboard, /Migrations pending/);
+  assert.match(dashboard, /admin\.sectionErrors/);
+});

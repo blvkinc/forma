@@ -16,6 +16,31 @@ import {
 // migration 021_admin_queues.sql.
 // ============================================================
 
+// ---- Database readiness ----
+// The seller-approval enforcement (migration 050) ships an RPC and a guard
+// trigger. If the database is behind on migrations, approvals are not
+// enforced server-side and improperly-verified sellers can act. This probe
+// lets the admin console warn loudly instead of silently misbehaving.
+export async function checkSellerApprovalReadiness() {
+  // A zero-uuid + dry decision: a present RPC returns a "not found"/"admin
+  // required" style error; an absent RPC returns PGRST202.
+  const { error } = await supabase.rpc('admin_review_seller_application', {
+    p_application_id: '00000000-0000-0000-0000-000000000000',
+    p_decision: 'approved',
+    p_review_note: null,
+  });
+  const message = error?.message || '';
+  const missing = error?.code === 'PGRST202' || /could not find the function|does not exist|schema cache/i.test(message);
+  return {
+    ready: !missing,
+    rpcMissing: missing,
+    detail: missing
+      ? 'Seller-approval enforcement (migration 050) is not applied to this database. '
+        + 'Apply the latest migrations in supabase/migrations so seller verification requires an approved application.'
+      : '',
+  };
+}
+
 // ---- KYC ----
 export async function fetchKycQueue() {
   const { data, error } = await supabase

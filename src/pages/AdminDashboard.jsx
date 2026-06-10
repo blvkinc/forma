@@ -7,6 +7,7 @@ import { ArtVisual } from '../components/shared';
 import { fmt, formatTime, relativeTime } from '../lib/ui';
 import { ARTWORKS, ARTISTS, COMMISSIONS, FEED_POSTS, artworkById, artistById } from '../lib/catalogue';
 import { useAdmin } from '../hooks/useAdmin';
+import { checkSellerApprovalReadiness } from '../lib/admin';
 
 export const AdminDashboard = ({ goToArtist, goToArtwork, goToFeed, trustState, profile, user, initialModerationArtworkId, initialTab }) => {
   const [tab, setTab] = useState(initialModerationArtworkId ? 'moderation' : initialTab || 'overview');
@@ -14,7 +15,18 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, goToFeed, trustState, 
   const [reviewNotes, setReviewNotes] = useState({});
   const [selectedModerationId, setSelectedModerationId] = useState(initialModerationArtworkId || null);
   const [moderationNotes, setModerationNotes] = useState({});
+  const [dbReadiness, setDbReadiness] = useState(null);
   const admin = useAdmin();
+
+  // Surface a clear banner when the seller-approval migration is missing,
+  // so an empty/leaky console reads as "migrations pending", not "broken".
+  useEffect(() => {
+    let cancelled = false;
+    checkSellerApprovalReadiness()
+      .then(result => { if (!cancelled) setDbReadiness(result); })
+      .catch(() => { if (!cancelled) setDbReadiness(null); });
+    return () => { cancelled = true; };
+  }, []);
   const reports = trustState?.reports || [];
   const openReports = reports.filter(report => report.status === 'open' || report.status === 'reviewing');
   const highPriorityReports = openReports.filter(report => report.priority === 'high');
@@ -235,9 +247,23 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, goToFeed, trustState, 
         ))}
       </div>
 
+      {dbReadiness?.rpcMissing && (
+        <div className="hair-all bg-[var(--accent)] text-white p-4 text-[13px] mb-4">
+          <div className="mono text-[10px] uppercase tracking-[0.12em] mb-1">Migrations pending</div>
+          {dbReadiness.detail} Until then, seller approval is not enforced in the database and the queues below may be incomplete.
+        </div>
+      )}
+
       {(admin.error || actionError) && (
         <div className="hair-all bg-[var(--accent-soft)] text-[var(--accent)] p-4 text-[13px] mb-6">
           {actionError || admin.error}
+          {admin.sectionErrors && Object.keys(admin.sectionErrors).length > 0 && (
+            <ul className="mt-2 space-y-1 mono text-[11px]">
+              {Object.entries(admin.sectionErrors).map(([section, message]) => (
+                <li key={section}>· <span className="uppercase tracking-[0.1em]">{section}</span>: {message}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

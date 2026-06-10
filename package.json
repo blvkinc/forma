@@ -9,6 +9,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --test",
     "qa:smoke": "node scripts/production-readiness-smoke.mjs",
+    "qa:migrations": "node scripts/check-db-migrations.mjs",
     "qa:bootstrap": "node scripts/bootstrap-qa-accounts.mjs"
   },
   "dependencies": {

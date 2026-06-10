@@ -15,7 +15,17 @@
       "Bash(python -)",
       "Bash(netstat -ano)",
       "Bash(awk '{print $5}')",
-      "Bash(taskkill //PID 12516 //F)"
+      "Bash(taskkill //PID 12516 //F)",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(claude mcp *)",
+      "Bash(git check-ignore *)",
+      "mcp__supabase__list_migrations",
+      "PowerShell(node scripts/check-db-migrations.mjs)",
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__apply_migration"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
 }
