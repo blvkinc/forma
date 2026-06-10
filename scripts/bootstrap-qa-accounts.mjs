@@ -417,6 +417,8 @@ async function ensureSellerApproved(seller, admin) {
     city: 'QA Lab',
     bio: 'Dedicated verified seller account for production-readiness smoke tests.',
     portfolio_url: 'https://example.com/forma-qa-portfolio',
+    artist_statement: 'Dedicated QA studio account used to exercise the full seller onboarding, publishing, and settlement workflows.',
+    profile_links: [{ label: 'Portfolio', url: 'https://example.com/forma-qa-portfolio' }],
     process_notes: 'QA bootstrap application for validating seller onboarding, studio publishing, storage, and settlement visibility.',
     sample_works: [
       {

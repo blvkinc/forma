@@ -12,6 +12,14 @@ export const FEED_POST_TTL_MS = 5 * 24 * 60 * 60 * 1000;
 
 export function isArtworkActive(work, now = Date.now()) {
   if (!work) return false;
+  // The database owns the listing window (015): trust is_active and
+  // listing_expires_at when present instead of re-deriving from createdAt,
+  // which breaks when a listing is refreshed or re-listed.
+  if (work.isActive === false) return false;
+  if (work.listingExpiresAt) {
+    const expiresAt = new Date(work.listingExpiresAt).getTime();
+    if (!Number.isNaN(expiresAt)) return expiresAt > now;
+  }
   if (!work.createdAt) return true; // legacy/demo rows without a timestamp stay visible
   const listedAt = new Date(work.createdAt).getTime();
   if (Number.isNaN(listedAt)) return true;

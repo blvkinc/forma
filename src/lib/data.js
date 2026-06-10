@@ -32,6 +32,8 @@ function transformArtwork(row) {
     authenticityNote: row.authenticity_note,
     authenticityUpdatedAt: row.authenticity_updated_at,
     takenDown: row.taken_down === true,
+    isActive: row.is_active,
+    listingExpiresAt: row.listing_expires_at,
     createdAt: row.created_at,
   };
 }

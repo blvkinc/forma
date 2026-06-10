@@ -43,6 +43,7 @@ const checks = [
   { mig: '033_automatic_auction_closeout', kind: 'fn', name: 'close_ended_auction', args: { p_artwork_id: '__probe__' } },
   { mig: '034_seller_onboarding_applications', kind: 'col', table: 'seller_applications', column: 'process_notes' },
   { mig: '041_delivery_worker_claims', kind: 'fn', name: 'claim_delivery_outbox_batch', args: { p_limit: 1 } },
+  { mig: '046_profile_privacy_cards', kind: 'col', table: 'profile_cards', column: 'display_name' },
   { mig: '048_seller_application_media_and_links', kind: 'col', table: 'seller_applications', column: 'profile_links' },
   { mig: '050_seller_approval_workflow_enforcement', kind: 'fn', name: 'admin_review_seller_application',
     args: { p_application_id: '00000000-0000-0000-0000-000000000000', p_decision: 'approved', p_review_note: null } },

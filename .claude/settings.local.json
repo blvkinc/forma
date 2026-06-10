@@ -22,7 +22,20 @@
       "mcp__supabase__list_migrations",
       "PowerShell(node scripts/check-db-migrations.mjs)",
       "mcp__supabase__execute_sql",
-      "mcp__supabase__apply_migration"
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__get_advisors",
+      "PowerShell(node scripts/.tmp-advisor-summary.mjs \"C:\\\\Users\\\\Blvk Inc\\\\.claude\\\\projects\\\\C--Users-Blvk-Inc-Desktop-forma\\\\71bc7104-b1b8-46f0-919f-0a585aec45a4\\\\tool-results\\\\toolu_01J2FEiTUTpSb2BNu9QoWYA7.json\")",
+      "PowerShell(Get-ChildItem src\\\\pages, src\\\\hooks, src\\\\lib, src\\\\components, src\\\\contexts, src\\\\features -File -Recurse | Select-Object -ExpandProperty FullName | ForEach-Object { $_.Replace\\('C:\\\\Users\\\\Blvk Inc\\\\Desktop\\\\forma\\\\', ''\\) })",
+      "PowerShell(if \\(Test-Path .env.local\\) { Get-Content .env.local | ForEach-Object { \\($_ -split '='\\)[0] } }; if \\(Test-Path .env\\) { Get-Content .env | ForEach-Object { \\($_ -split '='\\)[0] } })",
+      "mcp__supabase__list_edge_functions",
+      "PowerShell(node -e \"const c=require\\('crypto'\\); const mk=\\(\\)=>'FormaQA-'+c.randomBytes\\(12\\).toString\\('base64url'\\)+'!9'; const stamp=new Date\\(\\).toISOString\\(\\).replace\\(/[-:TZ.]/g,''\\).slice\\(0,14\\); console.log\\(JSON.stringify\\({stamp, buyer:mk\\(\\), seller:mk\\(\\), admin:mk\\(\\)}\\)\\)\")",
+      "PowerShell(git check-ignore *)",
+      "PowerShell($content = Get-Content 'supabase\\\\migrations\\\\044_marketplace_business_rule_constraints.sql' -Raw; $content.Length)",
+      "mcp__supabase__deploy_edge_function",
+      "PowerShell(node scripts/verify-guest-mode.mjs 2>$null)",
+      "PowerShell(node scripts/verify-responsive.mjs 2>$null)",
+      "PowerShell($r = Invoke-RestMethod 'http://127.0.0.1:5173/api/catalogue?resource=artworks'; $r.data.Count; $r.data[0].id; $r.data[0].ends_at; $r.data[0].is_active)",
+      "PowerShell(node scripts/.tmp-probe-explore.mjs 2>$null)"
     ]
   },
   "enabledMcpjsonServers": [

@@ -76,6 +76,7 @@ insert into public.seller_applications (
   city,
   bio,
   portfolio_url,
+  artist_statement,
   process_notes,
   sample_works,
   status
@@ -87,6 +88,7 @@ select
   p.city,
   coalesce(p.bio, 'QA seller application generated for admin onboarding review.'),
   'https://example.com/forma-qa-portfolio',
+  'QA artist statement: this studio application exists to exercise the seller onboarding review workflow end to end.',
   'QA process packet: review sample work, process notes, and platform fit before approving the seller.',
   jsonb_build_array(
     jsonb_build_object(
@@ -106,6 +108,10 @@ where p.role = 'artist'
   );
 
 -- Seed one comment, one report, and one AI vote from the first buyer profile.
+-- The abuse rate-limit guards (040) require an authenticated actor, so these
+-- direct seeds run with triggers disabled and sync the comment counter manually.
+set local session_replication_role = replica;
+
 with buyer as (
   select id
   from public.profiles
@@ -126,6 +132,10 @@ where not exists (
     and c.user_id = buyer.id
     and c.body like 'QA comment:%'
 );
+
+update public.feed_posts
+set comment_count = (select count(*) from public.post_comments where post_id = 'qa-feed-drop-channel-error')
+where id = 'qa-feed-drop-channel-error';
 
 with buyer as (
   select id
