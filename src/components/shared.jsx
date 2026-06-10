@@ -36,7 +36,7 @@ export const Ticker = () => (
   </div>
 );
 
-export const Header = ({ view, setView, role, notif, query, setQuery, profile, onSignOut, notifications = [], notifLoading = false, onMarkRead, onMarkAllRead, onOpenNotification }) => (
+export const Header = ({ view, setView, role, notif, query, setQuery, profile, onSignOut, notifications = [], notifLoading = false, onMarkRead, onMarkAllRead, onOpenNotification, isAuthenticated = true }) => (
   <header className="hair-b sticky top-0 z-40" style={{ backgroundColor: 'rgba(239, 237, 229, 0.92)', backdropFilter: 'blur(16px)' }}>
     <div className="max-w-[1440px] mx-auto px-8 h-[68px] flex items-center justify-between">
       <div className="flex items-center gap-10">
@@ -69,16 +69,24 @@ export const Header = ({ view, setView, role, notif, query, setQuery, profile, o
           />
           <span className="label">⌘K</span>
         </div>
-        <NotificationsMenu
-          notifications={notifications}
-          unreadCount={notif}
-          loading={notifLoading}
-          onMarkRead={onMarkRead}
-          onMarkAllRead={onMarkAllRead}
-          onOpen={onOpenNotification}
-        />
-        <RoleSwitcher role={role} setView={setView}/>
-        <UserMenu profile={profile} role={role} setView={setView} onSignOut={onSignOut}/>
+        {isAuthenticated ? (
+          <>
+            <NotificationsMenu
+              notifications={notifications}
+              unreadCount={notif}
+              loading={notifLoading}
+              onMarkRead={onMarkRead}
+              onMarkAllRead={onMarkAllRead}
+              onOpen={onOpenNotification}
+            />
+            <RoleSwitcher role={role} setView={setView}/>
+            <UserMenu profile={profile} role={role} setView={setView} onSignOut={onSignOut}/>
+          </>
+        ) : (
+          <button onClick={() => setView('auth')} className="swiss-btn py-2">
+            Sign in <ArrowRight size={12}/>
+          </button>
+        )}
       </div>
     </div>
   </header>
@@ -279,18 +287,36 @@ export const RoleSwitcher = ({ role, setView }) => {
   );
 };
 
-export const ArtVisual = ({ visual, imageUrl = '', alt = 'Artwork preview', className = '' }) => (
-  <div className={`relative overflow-hidden ${className}`} style={{ aspectRatio: '1/1' }}>
+// Artwork media is always wrapped in piracy deterrents: context menu,
+// drag-to-save, and text selection are blocked, a transparent shield sits
+// above the media so "Save image as…" never targets the artwork directly,
+// and an optional tiled watermark credits the artist on large views.
+// (True protection lives server-side — storage policies + low-res previews —
+// but these stop the casual right-click/drag theft paths.)
+export const ArtVisual = ({ visual, imageUrl = '', alt = 'Artwork preview', className = '', watermark = '' }) => (
+  <div
+    className={`art-protected relative overflow-hidden select-none ${className}`}
+    style={{ aspectRatio: '1/1' }}
+    onContextMenu={(e) => e.preventDefault()}
+    onDragStart={(e) => e.preventDefault()}
+  >
     {imageUrl ? (
       <img
         src={imageUrl}
         alt={alt}
         className="absolute inset-0 w-full h-full object-cover"
         loading="lazy"
+        draggable={false}
       />
     ) : (
       ART_VISUALS[visual]
     )}
+    {watermark && (
+      <div className="art-watermark" aria-hidden="true">
+        {Array.from({ length: 9 }, (_, i) => <span key={i}>{watermark}</span>)}
+      </div>
+    )}
+    <div className="art-shield" aria-hidden="true"/>
   </div>
 );
 
@@ -464,7 +490,7 @@ export const CatalogueLoadingState = () => (
         <div className="w-5 h-5 border-2 border-[var(--ink)] border-t-transparent rounded-full animate-spin"/>
       </div>
       <p className="text-[14px] text-[var(--muted)] mt-5 leading-relaxed">
-        Your account is signed in. FORMA is loading marketplace data from Supabase.
+        FORMA is loading live marketplace data. This usually takes a moment.
       </p>
     </div>
   </main>
@@ -479,7 +505,7 @@ export const CatalogueErrorState = ({ error }) => (
         {error}
       </p>
       <p className="text-[12px] text-[var(--muted)] mt-4">
-        Your account session is still active. You can open Profile from the menu or retry the catalogue.
+        This does not affect your sign-in state. Retry the catalogue, or come back in a moment.
       </p>
       <button onClick={() => window.location.reload()} className="swiss-btn mt-6 mx-auto">
         Retry <ArrowRight size={12}/>

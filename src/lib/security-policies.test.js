@@ -347,3 +347,48 @@ test('seller approval cannot be bypassed through generic verification or dev API
   assert.match(seller, /Admin approval is required before using seller studio tools/);
   assert.match(vite, /data\?\.role !== 'artist' \|\| data\?\.verified !== true/);
 });
+
+test('artwork media ships with anti-piracy deterrents', () => {
+  const shared = read('src/components/shared.jsx');
+  const styles = read('src/components/GlobalStyles.jsx');
+  const artwork = read('src/pages/ArtworkView.jsx');
+
+  // Right-click, drag-to-save, and selection are blocked on artwork media,
+  // and an invisible shield keeps "Save image as…" off the artwork file.
+  assert.match(shared, /onContextMenu=\{\(e\) => e\.preventDefault\(\)\}/);
+  assert.match(shared, /onDragStart=\{\(e\) => e\.preventDefault\(\)\}/);
+  assert.match(shared, /draggable=\{false\}/);
+  assert.match(shared, /art-shield/);
+  assert.match(shared, /art-watermark/);
+  assert.match(styles, /-webkit-user-drag: none/);
+  assert.match(styles, /pointer-events: none/);
+  assert.match(styles, /-webkit-touch-callout: none/);
+  assert.match(styles, /@media print/);
+
+  // The artwork detail page watermarks the hero media, states the artist's
+  // rights, and offers a stolen-work report path.
+  assert.match(artwork, /watermark=\{`FORMA © \$\{artist\.handle\}`\}/);
+  assert.match(artwork, /All rights reserved — reproduction prohibited/);
+  assert.match(artwork, /Report stolen work/);
+});
+
+test('guests browse public views only and all writes require sign-in', () => {
+  const ui = read('src/lib/ui.js');
+  const app = read('src/App.jsx');
+
+  // Public views never include account dashboards or admin tooling.
+  assert.match(ui, /export const PUBLIC_VIEWS = new Set\(\[/);
+  const publicViews = ui.match(/export const PUBLIC_VIEWS = new Set\(\[([\s\S]*?)\]\)/)[1];
+  ['dashboard', 'studio', 'admin', 'profile', 'commission-booking', 'verify']
+    .forEach((gated) => assert.doesNotMatch(publicViews, new RegExp(`'${gated}'`)));
+
+  // The app routes guests to sign-in for gated views and for every write guard.
+  assert.match(app, /view === 'auth' \|\| !PUBLIC_VIEWS\.has\(view\)/);
+  assert.match(app, /const role = isAuthenticated \? accountRole : 'guest'/);
+  assert.match(app, /const requireSignedIn = \(message/);
+  assert.match(app, /if \(!requireSignedIn\('Sign in with a buyer account to collect\.'\)\) return false/);
+  assert.match(app, /if \(!requireSignedIn\(message\)\) return false/);
+  assert.match(app, /if \(!requireSignedIn\('Sign in with a seller account to publish\.'\)\) return false/);
+  assert.match(app, /if \(!requireSignedIn\('Sign in with a buyer account to book commissions\.'\)\) return/);
+  assert.match(app, /if \(!requireSignedIn\('Sign in to report content\.'\)\) return/);
+});

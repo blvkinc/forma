@@ -485,8 +485,12 @@ export const StudioDashboard = ({ goToArtwork, likes, toggleLike, profile, role,
                   <span className="hair-all px-3 py-2 mono text-[10px] uppercase tracking-[0.1em] text-[var(--muted)]">
                     Admin review
                   </span>
+                ) : booking.status === 'DELIVERED' ? (
+                  <span className="hair-all px-3 py-2 mono text-[10px] uppercase tracking-[0.1em] text-[var(--muted)]">
+                    Awaiting buyer acceptance
+                  </span>
                 ) : (
-                  commissionState.nextStates(booking.status).map(next => (
+                  commissionState.roleNextStates(booking.status).map(next => (
                     <button key={next} onClick={() => transitionSellerBooking(booking, next)} className="swiss-btn">
                       {commissionState.stateLabel(next)}
                     </button>

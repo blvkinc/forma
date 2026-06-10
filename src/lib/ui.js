@@ -4,7 +4,7 @@
 import ART_VISUALS from '../data/visuals';
 
 export const formatTime = (ms) => {
-  if (ms <= 0) return 'ENDED';
+  if (!Number.isFinite(ms) || ms <= 0) return 'ENDED';
   const h = Math.floor(ms / 3600000);
   const m = Math.floor((ms % 3600000) / 60000);
   const s = Math.floor((ms % 60000) / 1000);
@@ -29,11 +29,13 @@ export const relativeTime = (iso) => {
 export const normalizeText = (value) => String(value || '').toLowerCase().trim();
 
 export const ROLE_LABELS = {
+  guest: 'Guest',
   buyer: 'Buyer',
   artist: 'Seller',
   admin: 'Admin',
 };
 export const roleLabel = (role) => ROLE_LABELS[role] || 'Buyer';
+export const isGuestRole = (role) => role === 'guest';
 export const isBuyerRole = (role) => role === 'buyer';
 export const isSellerRole = (role) => role === 'artist';
 export const isAdminRole = (role) => role === 'admin';
@@ -79,11 +81,26 @@ export const PRICE_BANDS = [
 export const APP_VIEWS = new Set([
   'home', 'explore', 'artwork', 'artist', 'commissions', 'commission-booking',
   'feed', 'artists', 'profile', 'dashboard', 'studio', 'admin',
-  'terms', 'privacy', 'trust', 'api', 'verify',
+  'terms', 'privacy', 'trust', 'api', 'verify', 'auth',
 ]);
 
+// Views that guests may browse without an account. Everything else routes
+// through the sign-in page until a session exists.
+export const PUBLIC_VIEWS = new Set([
+  'home', 'explore', 'artwork', 'artist', 'commissions', 'feed', 'artists',
+  'terms', 'privacy', 'trust', 'api', 'auth',
+]);
+
+// Hashes are `#view` or `#view/entityId` (e.g. `#artwork/aw1`) so artwork
+// and artist pages survive reloads and can be shared as links.
 export const viewFromHash = () => {
   if (typeof window === 'undefined') return 'home';
-  const hashView = window.location.hash.replace(/^#\/?/, '');
+  const hashView = window.location.hash.replace(/^#\/?/, '').split('/')[0];
   return APP_VIEWS.has(hashView) ? hashView : 'home';
+};
+
+export const entityIdFromHash = () => {
+  if (typeof window === 'undefined') return null;
+  const parts = window.location.hash.replace(/^#\/?/, '').split('/');
+  return parts.length > 1 && parts[1] ? decodeURIComponent(parts[1]) : null;
 };

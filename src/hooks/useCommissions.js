@@ -9,7 +9,10 @@ import {
   sendCommissionMessage,
   getCommissionPriceBreakdown,
 } from '../lib/commissions';
-import { COMMISSION_STATES, nextStates, stateLabel, stateColor, isTerminalState } from '../lib/domain';
+import {
+  COMMISSION_STATES, nextStates, nextStatesForRole, stateLabel, stateColor, isTerminalState,
+  SELLER_TRANSITION_TARGETS, BUYER_TRANSITION_TARGETS,
+} from '../lib/domain';
 
 // ============================================================
 // useCommissions — Commission booking & lifecycle management
@@ -75,11 +78,14 @@ export function useCommissions(artistId = null) {
   }, [userId, role]);
 
   // Transition a booking state.
-  // Sellers drive the production lifecycle; buyers may accept delivery,
-  // open a dispute, or cancel their own booking.
-  const BUYER_TRANSITIONS = ['DISPUTED', 'ACCEPTED', 'CANCELLED'];
+  // Sellers drive the production lifecycle (BRIEFED → DELIVERED) and may open
+  // a dispute; buyers may accept delivery, cancel, or open a dispute. The DB
+  // trigger in migration 037 enforces the same boundaries server-side.
   const handleTransitionBooking = useCallback(async (bookingId, newStatus) => {
-    if (role !== 'artist' && !(role === 'buyer' && BUYER_TRANSITIONS.includes(newStatus))) {
+    const allowed = role === 'artist'
+      ? SELLER_TRANSITION_TARGETS.includes(newStatus)
+      : role === 'buyer' && BUYER_TRANSITION_TARGETS.includes(newStatus);
+    if (!allowed) {
       return { error: 'You cannot make this commission update.' };
     }
 
@@ -131,6 +137,9 @@ export function useCommissions(artistId = null) {
     setActiveThread(null);
   }, []);
 
+  // Next states the signed-in role may actually request (matches the DB trigger).
+  const roleNextStates = useCallback((currentState) => nextStatesForRole(currentState, role), [role]);
+
   return {
     // Data
     buyerBookings,
@@ -150,6 +159,7 @@ export function useCommissions(artistId = null) {
     // State helpers
     COMMISSION_STATES,
     nextStates,
+    roleNextStates,
     stateLabel,
     stateColor,
     isTerminalState,

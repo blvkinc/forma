@@ -242,7 +242,9 @@ export const BuyerDashboard = ({ goToArtwork, likes, toggleLike, userBids, purch
               {commissionNotice}
             </div>
           )}
-          {buyerBookings.map((c) => (
+          {buyerBookings.map((c) => {
+            const stageIndex = { BOOKED: 0, BRIEFED: 1, IN_PROGRESS: 2, REVIEW: 2, DELIVERED: 3, ACCEPTED: 3 }[c.status] ?? 0;
+            return (
             <div key={c.id} className="hair-all p-6 bg-[var(--card)]">
               <div className="flex justify-between items-start">
                 <div>
@@ -254,7 +256,7 @@ export const BuyerDashboard = ({ goToArtwork, likes, toggleLike, userBids, purch
               <div className="mt-5 flex gap-1">
                 {['Booked','Brief','Drafts','Delivery'].map((s,j) => (
                   <div key={j} className="flex-1">
-                    <div className={`h-1.5 ${j === 0 ? 'bg-[var(--ink)]' : 'bg-[var(--hair)]'}`}/>
+                    <div className={`h-1.5 ${j <= stageIndex ? 'bg-[var(--ink)]' : 'bg-[var(--hair)]'}`}/>
                     <div className="mono text-[9px] uppercase tracking-[0.1em] mt-2 text-[var(--muted)]">0{j+1} {s}</div>
                   </div>
                 ))}
@@ -278,7 +280,8 @@ export const BuyerDashboard = ({ goToArtwork, likes, toggleLike, userBids, purch
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
         ) : (
           <div className="hair-all p-10 text-center bg-[var(--card)]">

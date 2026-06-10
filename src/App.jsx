@@ -11,7 +11,7 @@ import { useTrustSafety } from './hooks/useTrustSafety';
 import { useNotifications } from './hooks/useNotifications';
 import { useFormaMotion } from './hooks/useFormaMotion';
 import { createSellerArtist, createSellerArtwork, createSellerCommission, createSellerFeedPost, deleteSellerFeedPost, updateSellerFeedPost, uploadArtworkImage } from './lib/seller';
-import { fmt, roleLabel, isBuyerRole, isSellerRole, isAdminRole, isSocialParticipantRole, APP_VIEWS, viewFromHash } from './lib/ui';
+import { fmt, roleLabel, isBuyerRole, isSellerRole, isAdminRole, isSocialParticipantRole, APP_VIEWS, PUBLIC_VIEWS, viewFromHash, entityIdFromHash } from './lib/ui';
 import { setCatalogue, artworkById, artistById } from './lib/catalogue';
 
 import { GlobalStyles } from './components/GlobalStyles';
@@ -37,7 +37,10 @@ const InfoView = named(() => import('./pages/InfoView'), 'InfoView');
 // MAIN APP
 // ============================================================
 export default function App() {
-  const { isAuthenticated, loading: authLoading, user, profile, role, signOut, updateProfile, recoveryMode } = useAuth();
+  const { isAuthenticated, loading: authLoading, user, profile, role: accountRole, signOut, updateProfile, recoveryMode } = useAuth();
+  // Guests browse the public marketplace with a dedicated role so no
+  // buyer/seller/admin capability checks can pass without a session.
+  const role = isAuthenticated ? accountRole : 'guest';
   const [verifyMode, setVerifyMode] = useState(initialAuthCallback?.type === 'signup');
   const [verifyError, setVerifyError] = useState(false);
   const marketplace = useMarketplace();
@@ -45,8 +48,8 @@ export default function App() {
   const commissionState = useCommissions(ownedArtist?.id || null);
   const trustState = useTrustSafety();
   const [view, setView] = useState(() => viewFromHash());
-  const [selectedArtwork, setSelectedArtwork] = useState(null);
-  const [selectedArtist, setSelectedArtist] = useState(null);
+  const [selectedArtwork, setSelectedArtwork] = useState(() => (viewFromHash() === 'artwork' ? entityIdFromHash() : null));
+  const [selectedArtist, setSelectedArtist] = useState(() => (viewFromHash() === 'artist' ? entityIdFromHash() : null));
   const [bookingCommission, setBookingCommission] = useState(null);
   const [bookingReturnView, setBookingReturnView] = useState('commissions');
   const [threadBooking, setThreadBooking] = useState(null);
@@ -70,7 +73,7 @@ export default function App() {
   // Destructure interaction data from hook
   const { likes, follows, watchlist, postLikes, savedPosts, bids, userBids } = marketplace;
 
-  const navigateToView = (target) => {
+  const navigateToView = (target, entityId = null) => {
     if (!APP_VIEWS.has(target)) return;
     if (target !== 'admin') {
       setAdminFocusArtwork(null);
@@ -78,7 +81,7 @@ export default function App() {
     }
     setView(target);
     if (typeof window !== 'undefined') {
-      const nextHash = target === 'home' ? '' : `#${target}`;
+      const nextHash = target === 'home' ? '' : entityId ? `#${target}/${entityId}` : `#${target}`;
       if (window.location.hash !== nextHash) {
         if (nextHash) window.location.hash = nextHash;
         else window.history.pushState('', document.title, window.location.pathname + window.location.search);
@@ -88,10 +91,21 @@ export default function App() {
   };
 
   useEffect(() => {
-    const onHashChange = () => setView(viewFromHash());
+    const onHashChange = () => {
+      const hashView = viewFromHash();
+      const entityId = entityIdFromHash();
+      if (hashView === 'artwork' && entityId) setSelectedArtwork(entityId);
+      if (hashView === 'artist' && entityId) setSelectedArtist(entityId);
+      setView(hashView);
+    };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
+
+  // Signed-in users have no business on the sign-in screen.
+  useEffect(() => {
+    if (isAuthenticated && view === 'auth') navigateToView('home');
+  }, [isAuthenticated, view]);
 
   useEffect(() => {
     const hashView = viewFromHash();
@@ -137,8 +151,8 @@ export default function App() {
     navigateToView(isSellerRole(role) ? 'studio' : isAdminRole(role) ? 'admin' : 'home');
   };
 
-  const goToArtwork = (id) => { setSelectedArtwork(id); navigateToView('artwork'); };
-  const goToArtist = (id) => { setSelectedArtist(id); navigateToView('artist'); };
+  const goToArtwork = (id) => { setSelectedArtwork(id); navigateToView('artwork', id); };
+  const goToArtist = (id) => { setSelectedArtist(id); navigateToView('artist', id); };
   const openAdminModeration = (artworkId = null, initialTab = null) => {
     setAdminFocusArtwork(artworkId || null);
     setAdminInitialTab(initialTab || (artworkId ? 'moderation' : null));
@@ -150,14 +164,25 @@ export default function App() {
     setTimeout(() => setToast(null), delay);
   };
 
+  // Guests are sent to the sign-in page when they try to act, with a toast
+  // explaining why — browsing stays open, writing requires an account.
+  const requireSignedIn = (message = 'Sign in to continue.') => {
+    if (isAuthenticated) return true;
+    showToast(message, 3200);
+    navigateToView('auth');
+    return false;
+  };
+
   const requireBuyerAccount = () => {
+    if (!requireSignedIn('Sign in with a buyer account to collect.')) return false;
     if (isBuyerRole(role)) return true;
     showToast('Use a buyer account for collecting actions.');
     return false;
   };
 
   const requireSocialAccount = (message = 'Sign in to use social actions.') => {
-    if (isAuthenticated && isSocialParticipantRole(role)) return true;
+    if (!requireSignedIn(message)) return false;
+    if (isSocialParticipantRole(role)) return true;
     if (isAdminRole(role)) {
       showToast('Admin accounts review social activity from the admin console.');
       return false;
@@ -167,6 +192,7 @@ export default function App() {
   };
 
   const requireSellerAccount = () => {
+    if (!requireSignedIn('Sign in with a seller account to publish.')) return false;
     if (!isSellerRole(role)) {
       showToast('Use a seller account for studio actions.');
       return false;
@@ -233,6 +259,7 @@ export default function App() {
   };
 
   const openCommissionBooking = (commission) => {
+    if (!requireSignedIn('Sign in with a buyer account to book commissions.')) return;
     if (!isBuyerRole(role)) {
       showToast('Use a buyer account to book commission slots.');
       return;
@@ -301,6 +328,7 @@ export default function App() {
   };
 
   const openReport = (target) => {
+    if (!requireSignedIn('Sign in to report content.')) return;
     setThreadBooking(null);
     commissionState.closeThread();
     setReportTarget(target);
@@ -462,11 +490,13 @@ export default function App() {
   }
 
   // --- Auth gate ---
-  if (!isAuthenticated) {
+  // Guests may browse public marketplace views; the sign-in page appears when
+  // they open it directly or try to reach an account-only view.
+  if (!isAuthenticated && (view === 'auth' || !PUBLIC_VIEWS.has(view))) {
     return (
       <>
         <GlobalStyles/>
-        <AuthPage/>
+        <AuthPage onBack={() => navigateToView('home')}/>
       </>
     );
   }
@@ -479,7 +509,7 @@ export default function App() {
   return (
     <div className="swiss-app min-h-screen">
       <GlobalStyles/>
-      <Header view={view} setView={navigateToView} role={role} notif={notifCount} query={query} setQuery={setQuery} profile={profile} onSignOut={handleSignOut} notifications={notifications} notifLoading={notifLoading} onMarkRead={markNotificationRead} onMarkAllRead={markAllNotificationsRead} onOpenNotification={openNotification}/>
+      <Header view={view} setView={navigateToView} role={role} notif={notifCount} query={query} setQuery={setQuery} profile={profile} onSignOut={handleSignOut} notifications={notifications} notifLoading={notifLoading} onMarkRead={markNotificationRead} onMarkAllRead={markAllNotificationsRead} onOpenNotification={openNotification} isAuthenticated={isAuthenticated}/>
       {marketplace.error && view !== 'profile' ? (
         <CatalogueErrorState error={marketplace.error}/>
       ) : marketplace.loading && view !== 'profile' ? (
@@ -488,7 +518,7 @@ export default function App() {
         <Suspense fallback={<CatalogueLoadingState/>}>
           {view === 'home' && <HomeView goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} goExplore={() => navigateToView('explore')} goStudio={() => navigateToView('studio')}/>}
           {view === 'explore' && <ExploreView goToArtwork={goToArtwork} goToArtist={goToArtist} goFeed={() => navigateToView('feed')} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} query={query}/>}
-          {view === 'artwork' && selectedArtwork && <ArtworkView workId={selectedArtwork} goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} bids={bids} placeBid={placeBid} purchases={marketplace.purchases} recordPurchase={marketplace.recordArtworkPurchase} loadBidsForArtwork={marketplace.loadBidsForArtwork} onReport={openReport} user={user} role={role} refreshCatalogue={marketplace.refreshCatalogue} onOpenAdminModeration={openAdminModeration}/>}
+          {view === 'artwork' && selectedArtwork && <ArtworkView workId={selectedArtwork} goToArtwork={goToArtwork} goToArtist={goToArtist} likes={likes} toggleLike={toggleLike} watchlist={watchlist} toggleWatch={toggleWatch} bids={bids} placeBid={placeBid} purchases={marketplace.purchases} recordPurchase={marketplace.recordArtworkPurchase} loadBidsForArtwork={marketplace.loadBidsForArtwork} onReport={openReport} user={user} role={role} refreshCatalogue={marketplace.refreshCatalogue} onOpenAdminModeration={openAdminModeration}/>}
           {view === 'artist' && selectedArtist && <ArtistView artistId={selectedArtist} goToArtwork={goToArtwork} follows={follows} toggleFollow={toggleFollow} likes={likes} toggleLike={toggleLike} role={role} onBookCommission={openCommissionBooking} onReport={openReport}/>}
           {view === 'commissions' && <CommissionsView goToArtist={goToArtist} role={role} onBookCommission={openCommissionBooking}/>}
           {view === 'commission-booking' && bookingCommission && (

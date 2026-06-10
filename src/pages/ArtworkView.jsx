@@ -3,7 +3,7 @@
 // ============================================================
 import React, { useState, useEffect } from 'react';
 import {
-  ArrowLeft, ArrowRight, ArrowUpRight, Eye, Heart, Share2, Bookmark,
+  ArrowLeft, ArrowRight, ArrowUpRight, Heart, Share2, Bookmark,
   Flag, AlertCircle, Gavel, Send, Trash2, ShieldCheck,
 } from 'lucide-react';
 import { ArtCard, ArtVisual } from '../components/shared';
@@ -17,7 +17,7 @@ import { fetchArtworkAuthenticity, fetchArtworkAuthenticitySeal, removeAiVote, s
 import { supabase } from '../lib/supabase';
 import { fetchArtworkComments, addArtworkComment, deleteArtworkComment } from '../lib/social';
 
-export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, bids, placeBid, purchases = [], recordPurchase, loadBidsForArtwork, onReport, user, role, refreshCatalogue, onOpenAdminModeration }) => {
+export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike, watchlist = {}, toggleWatch, bids, placeBid, purchases = [], recordPurchase, loadBidsForArtwork, onReport, user, role, refreshCatalogue, onOpenAdminModeration }) => {
   const work = artworkById(workId);
   const artist = artistById(work.artist);
   const [bidInput, setBidInput] = useState(minimumNextBid(work.currentBid));
@@ -34,6 +34,7 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
   const [proofNotes, setProofNotes] = useState('');
   const [authSeal, setAuthSeal] = useState(null);
   const [comments, setComments] = useState([]);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSending, setCommentSending] = useState(false);
   const [commentError, setCommentError] = useState('');
@@ -181,6 +182,16 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
       setAuthSaving(false);
     }
   };
+  const shareArtwork = async () => {
+    const url = `${window.location.origin}${window.location.pathname}#artwork/${work.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2200);
+    } catch {
+      window.prompt('Copy this artwork link:', url);
+    }
+  };
   const submitProof = async () => {
     if (!canSubmitProof) return;
     setAuthSaving(true);
@@ -211,26 +222,42 @@ export const ArtworkView = ({ workId, goToArtwork, goToArtist, likes, toggleLike
         {/* LEFT — visual */}
         <div className="col-span-7">
           <div className="hair-all sticky top-[88px]">
-            <ArtVisual visual={work.visual} imageUrl={work.imageUrl} alt={work.title}/>
+            <ArtVisual visual={work.visual} imageUrl={work.imageUrl} alt={work.title} watermark={`FORMA © ${artist.handle}`}/>
             <div className="hair-t p-4 flex justify-between items-center mono text-[11px]">
               <div className="flex gap-4">
                 <span className="text-[var(--muted)]">{work.dim}</span>
                 <span>·</span>
                 <span className="text-[var(--muted)]">{work.format}</span>
               </div>
-              <div className="flex gap-3">
-                <button className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Eye size={12}/></button>
+              <div className="flex gap-3 items-center">
+                {linkCopied && <span className="text-[var(--good)] text-[10px] uppercase tracking-[0.1em]">Link copied</span>}
                 {!isAdmin && (
-                  <button onClick={() => toggleLike(work.id)} className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Heart size={12} fill={likes[work.id] ? 'currentColor' : 'none'}/></button>
+                  <button onClick={() => toggleLike(work.id)} title={likes[work.id] ? 'Unlike' : 'Like'} aria-label={likes[work.id] ? `Unlike ${work.title}` : `Like ${work.title}`} className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Heart size={12} fill={likes[work.id] ? 'currentColor' : 'none'}/></button>
                 )}
-                <button className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Share2 size={12}/></button>
-                {!isAdmin && <button className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Bookmark size={12}/></button>}
+                <button onClick={shareArtwork} title="Copy artwork link" aria-label="Copy artwork link" className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]"><Share2 size={12}/></button>
+                {!isAdmin && toggleWatch && (
+                  <button onClick={() => toggleWatch(work.id)} title={watchlist[work.id] ? 'Remove from watchlist' : 'Add to watchlist'} aria-label={watchlist[work.id] ? `Remove ${work.title} from watchlist` : `Add ${work.title} to watchlist`} className={`hair-all w-7 h-7 flex items-center justify-center ${watchlist[work.id] ? 'bg-[var(--ink)] text-[var(--bg)]' : 'hover:bg-[var(--ink)] hover:text-[var(--bg)]'}`}><Bookmark size={12} fill={watchlist[work.id] ? 'currentColor' : 'none'}/></button>
+                )}
                 {isAdmin ? (
                   <button onClick={() => onOpenAdminModeration?.(work.id)} className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--accent)] hover:text-white" aria-label="Open admin review"><ShieldCheck size={12}/></button>
                 ) : (
-                  <button onClick={() => onReport?.({ type: 'artwork', id: work.id, label: work.title })} className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--accent)] hover:text-white" aria-label="Report artwork"><Flag size={12}/></button>
+                  <button onClick={() => onReport?.({ type: 'artwork', id: work.id, label: work.title })} title="Report artwork" className="hair-all w-7 h-7 flex items-center justify-center hover:bg-[var(--accent)] hover:text-white" aria-label="Report artwork"><Flag size={12}/></button>
                 )}
               </div>
+            </div>
+            <div className="hair-t px-4 py-3 flex items-center justify-between gap-3 bg-[var(--card)]">
+              <div className="mono text-[10px] text-[var(--muted)] uppercase tracking-[0.1em] flex items-center gap-2">
+                <ShieldCheck size={11} className="flex-shrink-0"/>
+                © {work.year} {artist.name}. All rights reserved — reproduction prohibited.
+              </div>
+              {!isAdmin && (
+                <button
+                  onClick={() => onReport?.({ type: 'artwork', id: work.id, label: work.title })}
+                  className="mono text-[10px] uppercase tracking-[0.1em] underline-hover text-[var(--accent)] flex-shrink-0"
+                >
+                  Report stolen work
+                </button>
+              )}
             </div>
           </div>
         </div>

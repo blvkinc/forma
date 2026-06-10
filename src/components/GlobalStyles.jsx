@@ -468,6 +468,65 @@ export const GlobalStyles = () => (
       }
     }
 
+    /* ====================================================
+       ARTWORK PROTECTION — anti-piracy deterrents.
+       The media itself ignores pointer events; an invisible
+       shield sits above it so right-click / drag / long-press
+       can never target the artwork file directly.
+       ==================================================== */
+    .art-protected img,
+    .art-protected svg {
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-user-drag: none;
+      -webkit-touch-callout: none;
+    }
+    .art-shield {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      background: transparent;
+    }
+    .art-watermark {
+      position: absolute;
+      inset: -12%;
+      z-index: 1;
+      pointer-events: none;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      align-items: center;
+      justify-items: center;
+      transform: rotate(-22deg);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em !important;
+      color: rgba(251, 250, 245, 0.6);
+      text-shadow: 0 0 6px rgba(14, 14, 12, 0.35);
+      mix-blend-mode: overlay;
+      opacity: 0.6;
+      white-space: nowrap;
+    }
+    /* Printing a protected artwork yields the watermark, not a clean copy. */
+    @media print {
+      .art-protected img,
+      .art-protected svg {
+        visibility: hidden !important;
+      }
+      .art-protected::after {
+        content: 'FORMA — artwork removed from print. All rights reserved to the artist.';
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+    }
+
     .art-card {
       transition: transform 0.46s var(--ease-out);
     }

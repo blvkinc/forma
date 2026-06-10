@@ -11,7 +11,7 @@ import {
   isValidAuctionDuration, AUCTION_DURATION,
   auctionBuyerPremium, auctionTotalCost,
   commissionPlatformFee, commissionArtistPayout,
-  canTransition, nextStates, isTerminalState,
+  canTransition, nextStates, nextStatesForRole, isTerminalState,
   isPayoutEligible, PAYOUT_MINIMUM,
 } from './domain.js';
 
@@ -106,6 +106,27 @@ test('commission state machine transitions', () => {
   assert.deepEqual(nextStates('DELIVERED'), ['ACCEPTED', 'DISPUTED']);
   assert.equal(isTerminalState('ACCEPTED'), true);
   assert.equal(isTerminalState('IN_PROGRESS'), false);
+});
+
+// ---- Role-gated transitions (SQL parity with migration 037) ----
+// Only the buyer may accept or cancel; only the seller drives production;
+// only admins resolve a DISPUTED booking.
+test('nextStatesForRole mirrors the commission booking trigger boundaries', () => {
+  // Sellers never see buyer-only targets.
+  assert.deepEqual(nextStatesForRole('DELIVERED', 'artist'), ['DISPUTED']);
+  assert.deepEqual(nextStatesForRole('BOOKED', 'artist'), ['BRIEFED', 'DISPUTED']);
+  assert.deepEqual(nextStatesForRole('IN_PROGRESS', 'artist'), ['REVIEW', 'DISPUTED']);
+  // Buyers never see seller-only targets.
+  assert.deepEqual(nextStatesForRole('DELIVERED', 'buyer'), ['ACCEPTED', 'DISPUTED']);
+  assert.deepEqual(nextStatesForRole('BOOKED', 'buyer'), ['DISPUTED', 'CANCELLED']);
+  assert.deepEqual(nextStatesForRole('IN_PROGRESS', 'buyer'), ['DISPUTED']);
+  // Disputes are resolved by admins only.
+  assert.deepEqual(nextStatesForRole('DISPUTED', 'artist'), []);
+  assert.deepEqual(nextStatesForRole('DISPUTED', 'buyer'), []);
+  assert.deepEqual(nextStatesForRole('DISPUTED', 'admin'), ['IN_PROGRESS', 'CANCELLED']);
+  // Terminal states offer nothing to anyone.
+  assert.deepEqual(nextStatesForRole('ACCEPTED', 'buyer'), []);
+  assert.deepEqual(nextStatesForRole('CANCELLED', 'artist'), []);
 });
 
 // ---- FR-PAY-005: payout minimum ----

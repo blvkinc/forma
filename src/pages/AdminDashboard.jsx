@@ -52,6 +52,33 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, goToFeed, trustState, 
     moderationQueue[0] ||
     admin.moderation.artworks[0] ||
     null;
+  // The Auctions tab must see every artwork an admin can manage — including
+  // taken-down works, suspended studios, and listings past the public window
+  // — so it reads the admin moderation query, not the public catalogue.
+  const adminAuctionRows = (admin.moderation.artworks.length
+    ? admin.moderation.artworks.map(w => ({
+        id: w.id,
+        title: w.title,
+        visual: w.visual,
+        imageUrl: w.imageUrl,
+        artistId: w.artistId,
+        artistHandle: w.artistHandle || artistById(w.artistId).handle,
+        currentBid: Number(w.currentBid || 0),
+        takenDown: w.takenDown === true,
+        endsMs: w.endsAt ? Math.max(0, new Date(w.endsAt).getTime() - Date.now()) : 0,
+      }))
+    : ARTWORKS.map(w => ({
+        id: w.id,
+        title: w.title,
+        visual: w.visual,
+        imageUrl: w.imageUrl,
+        artistId: w.artist,
+        artistHandle: artistById(w.artist).handle,
+        currentBid: Number(w.currentBid || 0),
+        takenDown: false,
+        endsMs: w.endsAt,
+      }))
+  ).sort((a, b) => a.endsMs - b.endsMs);
   useEffect(() => {
     if (initialModerationArtworkId) {
       setSelectedModerationId(initialModerationArtworkId);
@@ -529,38 +556,43 @@ export const AdminDashboard = ({ goToArtist, goToArtwork, goToFeed, trustState, 
             <div className="col-span-2">Ends</div>
             <div className="col-span-1 text-right">Action</div>
           </div>
-          {ARTWORKS.map((w) => {
+          {adminAuctionRows.map((w) => {
             const settlement = settlementByArtworkId.get(w.id);
-            const ended = w.endsAt <= 0;
+            const ended = w.endsMs <= 0;
             return (
               <div key={w.id} className="grid grid-cols-12 gap-4 py-3 hair-b items-center text-[13px]">
                 <div className="col-span-1 mono text-[11px] text-[var(--muted)]">{w.id.toUpperCase()}</div>
                 <div className="col-span-4 flex items-center gap-3">
                   <div className="w-9 h-9 hair-all"><ArtVisual visual={w.visual} imageUrl={w.imageUrl} alt={w.title}/></div>
                   <div>
-                    <div>{w.title}</div>
-                    <div className="mono text-[10px] text-[var(--muted)]">{artistById(w.artist).handle}</div>
+                    <div>{w.title}{w.takenDown && <span className="mono text-[9px] uppercase tracking-[0.1em] bg-[var(--accent)] text-white px-1.5 py-0.5 ml-2">DOWN</span>}</div>
+                    <div className="mono text-[10px] text-[var(--muted)]">{w.artistHandle}</div>
                   </div>
                 </div>
                 <div className="col-span-2">
-                  <span className={`mono text-[9px] uppercase tracking-[0.1em] px-1.5 py-0.5 ${settlement ? statusTone(settlement.status) : ended ? 'bg-[var(--accent)] text-white' : w.endsAt < 1000*60*60*2 ? 'bg-[var(--accent)] text-white' : 'bg-[var(--good)] text-white'}`}>
-                    {settlement ? settlement.status.replace(/_/g, ' ') : ended ? 'ENDED' : w.endsAt < 1000*60*60*2 ? 'ENDING' : 'LIVE'}
+                  <span className={`mono text-[9px] uppercase tracking-[0.1em] px-1.5 py-0.5 ${settlement ? statusTone(settlement.status) : ended ? 'bg-[var(--accent)] text-white' : w.endsMs < 1000*60*60*2 ? 'bg-[var(--accent)] text-white' : 'bg-[var(--good)] text-white'}`}>
+                    {settlement ? settlement.status.replace(/_/g, ' ') : ended ? 'ENDED' : w.endsMs < 1000*60*60*2 ? 'ENDING' : 'LIVE'}
                   </span>
                 </div>
                 <div className="col-span-2 mono">${fmt(w.currentBid)}</div>
-                <div className="col-span-2 mono text-[11px]">{formatTime(w.endsAt)}</div>
+                <div className="col-span-2 mono text-[11px]">{formatTime(w.endsMs)}</div>
                 <div className="col-span-1 text-right flex gap-1 justify-end">
                   {ended && !settlement ? (
                     <button onClick={() => closeAuction(w.id)} className="swiss-btn ghost px-2 py-1">Close</button>
                   ) : settlement ? (
                     <button onClick={() => setTab('settlements')} className="mono text-[10px] underline-hover">Invoice</button>
                   ) : (
-                    <button onClick={() => goToArtist(w.artist)} className="hair-all w-6 h-6 inline-flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]" aria-label={`Open ${artistById(w.artist).name}`}><Flag size={11}/></button>
+                    <button onClick={() => goToArtist(w.artistId)} className="hair-all w-6 h-6 inline-flex items-center justify-center hover:bg-[var(--ink)] hover:text-[var(--bg)]" aria-label={`Open ${w.artistHandle}`}><Flag size={11}/></button>
                   )}
                 </div>
               </div>
             );
           })}
+          {adminAuctionRows.length === 0 && !admin.loading && (
+            <div className="hair-all bg-[var(--card)] p-10 text-center mt-4">
+              <div className="display text-[24px]">No auctions to manage.</div>
+            </div>
+          )}
         </div>
       )}
 

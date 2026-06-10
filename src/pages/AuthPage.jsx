@@ -4,7 +4,7 @@ import { ArrowRight, Eye, EyeOff, Check, AlertCircle, Mail } from 'lucide-react'
 import { SellerApplicationForm } from '../features/seller';
 import { savePendingSellerApplication, stagePendingSellerApplicationImage } from '../lib/pendingSellerApplication';
 
-export default function AuthPage() {
+export default function AuthPage({ onBack = null }) {
   const { signIn, signUp, resetPassword, signInWithProvider } = useAuth();
   const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'reset'
   const [email, setEmail] = useState('');
@@ -278,6 +278,17 @@ export default function AuthPage() {
                 <span className="label">/24</span>
               </div>
             </div>
+
+            {/* Back to public browsing (guests arriving from the marketplace) */}
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="mono text-[11px] uppercase tracking-[0.12em] underline-hover mb-6 text-[var(--card-muted)]"
+              >
+                ← Continue browsing without an account
+              </button>
+            )}
 
             {/* Section label */}
             <div className="label mb-6 flex items-center gap-3">

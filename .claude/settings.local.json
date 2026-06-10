@@ -5,7 +5,17 @@
       "Bash(node --test)",
       "Bash(npx vite *)",
       "Bash(npm run *)",
-      "Bash(npm test *)"
+      "Bash(npm test *)",
+      "PowerShell(Get-ChildItem -Recurse src, supabase, docs, scripts -File | Where-Object { $_.FullName -notmatch 'node_modules' } | Select-Object -ExpandProperty FullName)",
+      "PowerShell(npm test *)",
+      "PowerShell(npm run *)",
+      "Bash(npm i *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:5173/)",
+      "Bash(node scripts/verify-guest-mode.mjs)",
+      "Bash(python -)",
+      "Bash(netstat -ano)",
+      "Bash(awk '{print $5}')",
+      "Bash(taskkill //PID 12516 //F)"
     ]
   }
 }

@@ -169,6 +169,23 @@ export function nextStates(currentState) {
   return STATE_TRANSITIONS[currentState] || [];
 }
 
+// Role boundaries mirror the SQL trigger in
+// supabase/migrations/037_commission_booking_pipeline.sql:
+// - sellers drive production (BRIEFED → DELIVERED) and may open a dispute,
+// - buyers may accept, cancel, or open a dispute,
+// - only admins resolve a DISPUTED booking.
+export const SELLER_TRANSITION_TARGETS = ['BRIEFED', 'IN_PROGRESS', 'REVIEW', 'DELIVERED', 'DISPUTED'];
+export const BUYER_TRANSITION_TARGETS = ['ACCEPTED', 'CANCELLED', 'DISPUTED'];
+
+export function nextStatesForRole(currentState, role) {
+  const targets = nextStates(currentState);
+  if (role === 'admin') return targets;
+  if (currentState === COMMISSION_STATES.DISPUTED) return [];
+  if (role === 'artist') return targets.filter(state => SELLER_TRANSITION_TARGETS.includes(state));
+  if (role === 'buyer') return targets.filter(state => BUYER_TRANSITION_TARGETS.includes(state));
+  return [];
+}
+
 export function isTerminalState(state) {
   return state === COMMISSION_STATES.ACCEPTED || state === COMMISSION_STATES.CANCELLED;
 }
@@ -253,7 +270,7 @@ export function formatPriceDetailed(amount) {
 }
 
 export function formatCountdown(ms) {
-  if (ms <= 0) return 'ENDED';
+  if (!Number.isFinite(ms) || ms <= 0) return 'ENDED';
   const h = Math.floor(ms / 3600000);
   const m = Math.floor((ms % 3600000) / 60000);
   const s = Math.floor((ms % 60000) / 1000);
